@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Artifact isolation probes</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0; padding: 1.5rem 1.25rem 3rem;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #fbfaf7; color: #1b1b1b;
+  }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  .sub { margin: 0 0 1.25rem; color: #5a5a5a; font-size: .9rem; }
+  #verdict {
+    padding: 1.25rem; border-radius: .75rem; margin-bottom: 1.25rem;
+    font-size: 1.6rem; font-weight: 800; text-align: center; letter-spacing: .01em;
+    background: #6b7280; color: #fff;
+  }
+  #verdict.pass { background: #0a7d32; }
+  #verdict.fail { background: #b3121f; }
+  #unframed {
+    padding: .9rem 1rem; margin-bottom: 1rem; border-radius: .6rem;
+    background: #fdf3d6; border: 1px solid #e0c86a; color: #6b5300;
+    font-weight: 650;
+  }
+  .na { background: #6b7280; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex; align-items: flex-start; gap: .875rem;
+    padding: .8rem .9rem; margin-bottom: .5rem; border-radius: .6rem;
+    background: #fff; border: 1px solid #e6e2d9;
+  }
+  .tag {
+    flex: 0 0 auto; min-width: 8.5rem; text-align: center;
+    padding: .35rem .5rem; border-radius: .4rem;
+    font-weight: 800; font-size: .8rem; letter-spacing: .04em; color: #fff;
+  }
+  .blocked { background: #0a7d32; }
+  .escaped { background: #b3121f; }
+  .name { font-weight: 650; }
+  .detail { color: #5a5a5a; font-size: .82rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+</style>
+</head>
+<body>
+  <h1>Artifact isolation probes</h1>
+  <p class="sub">
+    Every probe below tries to escape the artifact frame. Green
+    <strong>BLOCKED</strong> is the correct result for all of them.
+  </p>
+  <div id="unframed" hidden>
+    Not running inside a frame. Open this file through the Buzz artifact panel —
+    standalone results say nothing about isolation.
+  </div>
+  <div id="verdict">Running…</div>
+  <ul id="results"></ul>
+
+<script>
+/*
+ * Fixture for manual verification of the artifact:// isolation contract
+ * (R1-R6, docs/plan-artifact-preview.md §4.5).
+ *
+ * Attach this file to a Buzz message, open it in the artifact panel, and press
+ * "Run this file". Every probe must report BLOCKED.
+ *
+ * Two layers are being exercised at once and both must hold:
+ *   - the frame `sandbox="allow-scripts"` with no `allow-same-origin`, which
+ *     gives this document an opaque origin, and
+ *   - the response CSP `default-src 'none'`, which denies network egress.
+ *
+ * A red ESCAPED line is a real finding: it means artifact-supplied code reached
+ * something outside its frame. Report it before shipping.
+ */
+(function () {
+  var results = [];
+
+  /*
+   * When this document is not framed, `parent` and `top` are this same window,
+   * so the cross-document probes would trivially "succeed" and report an escape
+   * that never happened. Detect that and mark them not-applicable instead of
+   * crying wolf — the fixture is only meaningful inside the artifact frame.
+   */
+  var framed = window.parent !== window;
+
+  function record(name, blocked, detail) {
+    results.push({ name: name, blocked: blocked, detail: String(detail) });
+  }
+
+  function recordNA(name) {
+    results.push({ name: name, na: true, blocked: true, detail: "not applicable — this document is not framed" });
+  }
+
+  /* A probe passes when the escape attempt throws or yields nothing usable. */
+  function probeSync(name, attempt) {
+    try {
+      var value = attempt();
+      record(name, false, "returned " + JSON.stringify(value));
+    } catch (err) {
+      record(name, true, (err && err.name ? err.name : "Error") + ": " + (err && err.message));
+    }
+  }
+
+  // --- Same-origin access to the embedding app ---------------------------
+  if (framed) {
+    probeSync("Read parent document", function () {
+      return parent.document.title;
+    });
+    probeSync("Read parent location", function () {
+      return parent.location.href;
+    });
+    probeSync("Read top window origin", function () {
+      return top.origin;
+    });
+  } else {
+    recordNA("Read parent document");
+    recordNA("Read parent location");
+    recordNA("Read top window origin");
+  }
+  probeSync("Reach opener", function () {
+    if (!window.opener) throw new Error("no opener handle — nothing to reach");
+    return window.opener.document.title;
+  });
+
+  // --- Persistent storage -------------------------------------------------
+  probeSync("localStorage", function () {
+    localStorage.setItem("probe", "1");
+    return localStorage.getItem("probe");
+  });
+  probeSync("sessionStorage", function () {
+    sessionStorage.setItem("probe", "1");
+    return sessionStorage.getItem("probe");
+  });
+  probeSync("indexedDB", function () {
+    var request = indexedDB.open("probe");
+    return request ? "open() accepted" : "no handle";
+  });
+  probeSync("document.cookie write", function () {
+    document.cookie = "probe=1";
+    if (document.cookie.indexOf("probe") === -1) throw new Error("cookie not retained");
+    return document.cookie;
+  });
+
+  // --- Origin identity ----------------------------------------------------
+  probeSync("Opaque origin", function () {
+    var origin = String(document.origin || window.origin);
+    // An opaque origin serialises as "null". Anything else means this document
+    // shares an origin with something, which is the failure we care about.
+    if (origin === "null") throw new Error("origin is opaque (null)");
+    return origin;
+  });
+
+  // --- Network egress (denied by the response CSP) ------------------------
+  var pending = 2;
+  function settle() {
+    pending -= 1;
+    if (pending === 0) render();
+  }
+
+  try {
+    fetch("https://example.com/probe", { mode: "no-cors" })
+      .then(function () {
+        record("fetch() to the internet", false, "request completed");
+        settle();
+      })
+      .catch(function (err) {
+        record("fetch() to the internet", true, (err && err.name) + ": " + (err && err.message));
+        settle();
+      });
+  } catch (err) {
+    record("fetch() to the internet", true, "threw synchronously: " + err);
+    settle();
+  }
+
+  try {
+    var img = new Image();
+    var imgSettled = false;
+    img.onload = function () {
+      if (imgSettled) return;
+      imgSettled = true;
+      record("Image beacon to the internet", false, "image loaded");
+      settle();
+    };
+    img.onerror = function () {
+      if (imgSettled) return;
+      imgSettled = true;
+      record("Image beacon to the internet", true, "blocked or failed to load");
+      settle();
+    };
+    img.src = "https://example.com/probe.png?t=" + Math.random();
+    // CSP refusals can be silent on some engines; do not hang the report.
+    setTimeout(function () {
+      if (imgSettled) return;
+      imgSettled = true;
+      record("Image beacon to the internet", true, "no load within 2s");
+      settle();
+    }, 2000);
+  } catch (err) {
+    record("Image beacon to the internet", true, "threw synchronously: " + err);
+    settle();
+  }
+
+  function render() {
+    results.sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+    var list = document.getElementById("results");
+    list.textContent = "";
+    results.forEach(function (probe) {
+      var li = document.createElement("li");
+      var tag = document.createElement("span");
+      tag.className = "tag " + (probe.na ? "na" : probe.blocked ? "blocked" : "escaped");
+      tag.textContent = probe.na ? "N/A" : probe.blocked ? "BLOCKED" : "ESCAPED";
+      var body = document.createElement("div");
+      var name = document.createElement("div");
+      name.className = "name";
+      name.textContent = probe.name;
+      var detail = document.createElement("div");
+      detail.className = "detail";
+      detail.textContent = probe.detail;
+      body.appendChild(name);
+      body.appendChild(detail);
+      li.appendChild(tag);
+      li.appendChild(body);
+      list.appendChild(li);
+    });
+
+    document.getElementById("unframed").hidden = framed;
+
+    var escaped = results.filter(function (p) { return !p.blocked; });
+    var applicable = results.filter(function (p) { return !p.na; });
+    var verdict = document.getElementById("verdict");
+    if (!framed) {
+      verdict.className = "";
+      verdict.textContent = "NOT FRAMED — open this in the artifact panel";
+    } else if (escaped.length === 0) {
+      verdict.className = "pass";
+      verdict.textContent = "ISOLATION HOLDS — " + applicable.length + "/" + applicable.length + " BLOCKED";
+    } else {
+      verdict.className = "fail";
+      verdict.textContent = "ISOLATION BROKEN — " + escaped.length + " ESCAPED";
+    }
+  }
+
+  // Paint the synchronous results immediately; the async ones refresh the view.
+  render();
+})();
+</script>
+</body>
+</html>

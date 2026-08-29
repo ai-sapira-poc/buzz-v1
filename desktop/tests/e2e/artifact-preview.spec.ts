@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
@@ -227,6 +229,126 @@ test("dragging the handle actually changes the panel width", async ({
   const after = (await panel.boundingBox())?.width ?? 0;
   // Dragging the left edge leftwards widens the right-hand pane.
   expect(after).toBeGreaterThan(before + 40);
+});
+
+// --- A2: the artifact:// renderer and its opt-in gate ---
+//
+// The artifact scheme is a Tauri protocol, so a browser-based harness cannot
+// load the trusted frame or probe isolation from inside it. What it can prove
+// is the gate: scripts stay unrun until the reader asks, and the switch targets
+// the isolated origin rather than widening the inert one. The frame's own
+// isolation (parent, storage, network) is enforced by the response CSP, which
+// the Rust suite pins, and was measured on WKWebView in
+// docs/spike-csp-results.md §5.
+
+test("a script-bearing artifact offers to run, and does not run first", async ({
+  page,
+}) => {
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+
+  await expect(page.getByTestId("artifact-run")).toBeVisible();
+  await expect(page.getByTestId("artifact-frame")).toHaveAttribute(
+    "data-artifact-mode",
+    "inert",
+  );
+  await expect(page.getByTestId("artifact-running-notice")).toHaveCount(0);
+});
+
+test("opting in switches the frame to the isolated artifact origin", async ({
+  page,
+}) => {
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+  await page.getByTestId("artifact-run").click();
+
+  const frame = page.getByTestId("artifact-frame");
+  await expect(frame).toHaveAttribute("data-artifact-mode", "trusted");
+  const src = await frame.getAttribute("src");
+  expect(src).toMatch(/^artifact:\/\/localhost\/[0-9a-f]{64}$/);
+
+  // Still no allow-same-origin, in the mode where scripts actually execute.
+  await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+  await expect(page.getByTestId("artifact-running-notice")).toBeVisible();
+  await expect(page.getByTestId("artifact-run")).toHaveCount(0);
+});
+
+test("an artifact without scripts is never offered the run gate", async ({
+  page,
+}) => {
+  await cardFor(page, "diagram.svg").getByTestId("file-card-preview").click();
+  await expect(page.getByTestId("artifact-frame")).toBeVisible();
+  await expect(page.getByTestId("artifact-run")).toHaveCount(0);
+});
+
+test("trust does not survive switching to another artifact", async ({
+  page,
+}) => {
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+  await page.getByTestId("artifact-run").click();
+  await expect(page.getByTestId("artifact-frame")).toHaveAttribute(
+    "data-artifact-mode",
+    "trusted",
+  );
+
+  await cardFor(page, "diagram.svg").getByTestId("file-card-preview").click();
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+
+  await expect(page.getByTestId("artifact-frame")).toHaveAttribute(
+    "data-artifact-mode",
+    "inert",
+  );
+  await expect(page.getByTestId("artifact-run")).toBeVisible();
+});
+
+// The sandbox half of the isolation contract IS testable here, and worth
+// automating: this harness has no CSP, so the inert frame's scripts execute,
+// which lets the real fixture run its escape attempts against the same
+// `sandbox="allow-scripts"` boundary production uses. The network probes are
+// expected to pass through here — only the response CSP blocks those, and that
+// CSP exists solely on the artifact:// scheme the browser cannot load.
+test("the sandbox denies the fixture's escape attempts", async ({ page }) => {
+  const fixture = readFileSync(
+    new URL("../../../test-fixtures/sondas.html", import.meta.url),
+    "utf8",
+  );
+  const url = `https://mock.relay/media/${"d".repeat(64)}.html`;
+  await page.route(url, (route) =>
+    route.fulfill({ body: fixture, contentType: "text/html" }),
+  );
+
+  await page.evaluate(
+    ({ href, tag }) => {
+      const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!emit) throw new Error("Mock message emitter is not installed.");
+      emit({
+        channelName: "general",
+        content: `[sondas.html](${href})`,
+        extraTags: [tag],
+      });
+    },
+    {
+      href: url,
+      tag: imeta(url, "text/html", "sondas.html", fixture.length),
+    },
+  );
+
+  await cardFor(page, "sondas.html").getByTestId("file-card-preview").click();
+  const frame = page.getByTestId("artifact-frame").contentFrame();
+
+  await expect(frame.locator("#verdict")).not.toHaveText(/NOT FRAMED/);
+
+  for (const probe of [
+    "Read parent document",
+    "Read parent location",
+    "Read top window origin",
+    "localStorage",
+    "sessionStorage",
+    "Opaque origin",
+  ]) {
+    await expect(
+      frame.locator("li").filter({ hasText: probe }).locator(".tag"),
+      `${probe} must be blocked by the frame sandbox`,
+    ).toHaveText("BLOCKED");
+  }
 });
 
 test("closing the panel restores the channel", async ({ page }) => {

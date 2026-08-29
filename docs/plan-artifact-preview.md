@@ -1,6 +1,6 @@
 # Plan — Artifact preview in the desktop client
 
-Status: **approved; CSP spike complete; Milestone A1 in progress**
+Status: **A1 shipped and manually verified; A2 implemented, pending manual verification**
 Scope: desktop client (`desktop/`). Phase A (attachment preview) and Phase B (live dev-server preview).
 Companion: `docs/spike-csp-results.md` — the empirical basis for §4.2, §4.4 and §6.
 
@@ -610,7 +610,34 @@ Playwright (`desktop/tests/`):
 | R4 | Snapshot test on `tauri.conf.json`: the CSP differs from the pre-A2 baseline **only** in `frame-src`; `script-src` is byte-identical. |
 | R5 | Frame `sandbox === "allow-scripts"`. |
 | R6 | Response carries `nosniff` and an explicit `Content-Type`. |
-| In-artifact isolation | Inside the running artifact: `parent.document` throws, `localStorage` throws, `document.origin === "null"`, outbound `fetch()` rejects. The spike harness (`docs/spike-csp-results.md` §1) is the model — port it to a Playwright assertion. |
+| In-artifact isolation | Split by what each environment can actually prove — see §10.5. |
+
+### 10.5 Isolation: what is automated, and what is not
+
+The `artifact://` scheme is a Tauri protocol. A browser-based Playwright harness
+cannot load the trusted frame, so the isolation contract is verified in three
+places rather than one:
+
+| Layer | How it is verified | Where |
+|---|---|---|
+| Response CSP is correct | Rust unit tests on the served headers (R3) | `artifact_protocol.rs` |
+| App CSP is not widened | Snapshot test pinning `script-src` byte-for-byte (R4) | `shared/lib/appCsp.test.mjs` |
+| Frame sandbox denies escape | `test-fixtures/sondas.html` runs its real escape attempts inside the inert frame, which executes scripts under Playwright (no CSP there) — parent, storage and origin probes must all report BLOCKED | `tests/e2e/artifact-preview.spec.ts` |
+| Network egress is denied | **Not automated.** Requires the real protocol under a real CSP | manual: `sondas.html` in the packaged app |
+| The whole contract end to end | **Not automated.** | manual: `sondas.html` must report ISOLATION HOLDS |
+
+`test-fixtures/sondas.html` is deliberately both: a fixture the e2e suite drives,
+and a file a human attaches to a message for the manual pass. One artifact, so
+the two cannot drift apart.
+
+**Upgrade path, documented and not implemented:** a WKWebView harness in the
+repo — the shape of the one in `docs/spike-csp-results.md` §1 — could register a
+scheme handler, serve the real `ARTIFACT_CSP`, and assert the network probes
+automatically on macOS. That would close the last manual row. It is not built
+because it would test a Swift reimplementation of the handler rather than the
+Rust one, and a harness that drifts from the code it stands in for is worse than
+an honest manual step. Revisit if the manual pass becomes a recurring cost, or
+if Tauri gains a supported way to drive its protocols from an integration test.
 
 ### 10.4 Phase B
 

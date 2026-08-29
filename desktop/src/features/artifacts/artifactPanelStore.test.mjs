@@ -7,6 +7,7 @@ import {
   openArtifact,
   resetArtifactPanelForTests,
   setArtifactTab,
+  trustArtifact,
 } from "./artifactPanelStore.ts";
 
 const HTML_TARGET = {
@@ -31,6 +32,7 @@ test("starts closed", () => {
   assert.deepEqual(getArtifactPanelSnapshotForTests(), {
     target: null,
     tab: "preview",
+    trusted: false,
   });
 });
 
@@ -77,4 +79,49 @@ test("setArtifactTab is a no-op when the tab is unchanged", () => {
   const before = getArtifactPanelSnapshotForTests();
   setArtifactTab("preview");
   assert.equal(getArtifactPanelSnapshotForTests(), before);
+});
+
+// --- A2: the explicit opt-in gate before an artifact's scripts run ---
+
+test("an artifact is untrusted when it opens", () => {
+  openArtifact(HTML_TARGET);
+  assert.equal(getArtifactPanelSnapshotForTests().trusted, false);
+});
+
+test("trustArtifact opts in", () => {
+  openArtifact(HTML_TARGET);
+  trustArtifact();
+  assert.equal(getArtifactPanelSnapshotForTests().trusted, true);
+});
+
+test("trust does not carry to a different artifact", () => {
+  openArtifact(HTML_TARGET);
+  trustArtifact();
+  openArtifact(SVG_TARGET);
+  assert.equal(
+    getArtifactPanelSnapshotForTests().trusted,
+    false,
+    "each artifact must earn its own opt-in",
+  );
+});
+
+test("trust is discarded when the panel closes", () => {
+  openArtifact(HTML_TARGET);
+  trustArtifact();
+  closeArtifact();
+  openArtifact(HTML_TARGET);
+  assert.equal(getArtifactPanelSnapshotForTests().trusted, false);
+});
+
+test("switching tabs does not revoke trust", () => {
+  openArtifact(HTML_TARGET);
+  trustArtifact();
+  setArtifactTab("source");
+  setArtifactTab("preview");
+  assert.equal(getArtifactPanelSnapshotForTests().trusted, true);
+});
+
+test("trustArtifact does nothing with no artifact open", () => {
+  trustArtifact();
+  assert.equal(getArtifactPanelSnapshotForTests().trusted, false);
 });

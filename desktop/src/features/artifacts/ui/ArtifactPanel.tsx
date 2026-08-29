@@ -1,12 +1,14 @@
 import { AlertTriangle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { sourceHasScript } from "../artifactDocument";
 import {
   type ArtifactPanelTab,
   setArtifactTab,
+  trustArtifact,
   useArtifactPanel,
 } from "../artifactPanelStore";
 import {
@@ -34,7 +36,7 @@ function PanelNotice({ children }: { children: React.ReactNode }) {
  * `ChannelPane`. Wrapping `AuxiliaryPanel` again here would double the chrome.
  */
 export function ArtifactPanel() {
-  const { target, tab } = useArtifactPanel();
+  const { target, tab, trusted } = useArtifactPanel();
   const query = useArtifactSource(target);
 
   if (!target) return null;
@@ -90,15 +92,34 @@ export function ArtifactPanel() {
       </TabsList>
 
       <TabsContent value="preview">
-        {sourceHasScript(text) ? (
+        {sourceHasScript(text) && !trusted ? (
           // Without this the artifact simply looks broken: the frame renders,
           // its scripts are silently refused by the inherited CSP, and nothing
           // tells the reader why. See docs/spike-csp-results.md §6.
           <Alert className="mb-3" data-testid="artifact-script-notice">
             <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="flex flex-wrap items-center gap-3">
+              <span>
+                This file contains scripts. They are not run — it is shown as
+                static content.
+              </span>
+              <Button
+                data-testid="artifact-run"
+                onClick={trustArtifact}
+                size="sm"
+                variant="outline"
+              >
+                Run this file
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {trusted ? (
+          <Alert className="mb-3" data-testid="artifact-running-notice">
+            <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              Scripts in this file are not run in the preview. It is shown as
-              static content.
+              Running this file's scripts. It is isolated: it cannot reach your
+              session or the network.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -106,6 +127,7 @@ export function ArtifactPanel() {
           kind={target.artifact}
           text={text}
           title={`Preview of ${target.filename}`}
+          trusted={trusted}
         />
       </TabsContent>
 
