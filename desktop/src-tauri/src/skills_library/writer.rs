@@ -292,6 +292,25 @@ pub fn commit_skill(
 }
 
 /// Full write path: copy, link, commit. Used by import and create alike.
+/// Make sure the skills directory is a repository **before** anything is
+/// written into it.
+///
+/// Ordering is the whole point. `ensure_repo` bootstraps a new repo with
+/// `git add -A` + the `estado actual` commit — a snapshot of what was already
+/// on disk. Run after a copy, that snapshot swallows the skill just written:
+/// it lands inside `estado actual` instead of getting its own commit (§5.1),
+/// and the subsequent `git add -- <name>` then finds nothing new to stage and
+/// reports "not committed" for a skill that is, confusingly, committed.
+///
+/// Non-fatal: a git failure never blocks a write (§4). The warning is
+/// returned so the caller can surface it.
+fn ensure_repo_before_write(skills_dir: &Path) -> Option<String> {
+    match ensure_repo(skills_dir) {
+        Ok(()) => None,
+        Err(error) => Some(format!("git: {error}")),
+    }
+}
+
 pub fn write_skill(
     roots: &LibraryRoots,
     name: &str,
@@ -303,12 +322,15 @@ pub fn write_skill(
     std::fs::create_dir_all(&skills_dir)
         .map_err(|e| format!("create {}: {e}", skills_dir.display()))?;
 
+    // Step 0 — the repo must exist before the copy, so its baseline snapshot
+    // cannot absorb the skill this call is about to write.
+    let mut warnings = Vec::new();
+    warnings.extend(ensure_repo_before_write(&skills_dir));
+
     // Step 1 — canonical copy. The only step whose failure aborts.
     let dest = resolve_new_within(&roots.skill_dir(name), std::slice::from_ref(&skills_dir))
         .map_err(|denied| denied.message(&roots.skill_dir(name)))?;
     copy_skill_tree(source, &dest)?;
-
-    let mut warnings = Vec::new();
 
     // Step 2 — runtime symlinks.
     let (links, link_warnings) = ensure_runtime_links(roots, name);
@@ -434,6 +456,14 @@ pub fn create_skill(
             "A skill named `{name}` already exists. Pick another name — overwriting one silently removes it from every agent's prompt."
         ));
     }
+    let skills_dir = roots.skills_dir();
+    std::fs::create_dir_all(&skills_dir)
+        .map_err(|e| format!("create {}: {e}", skills_dir.display()))?;
+
+    // Same ordering rule as `write_skill`: baseline the repo first.
+    let mut warnings = Vec::new();
+    warnings.extend(ensure_repo_before_write(&skills_dir));
+
     std::fs::create_dir_all(&dest).map_err(|e| format!("create {}: {e}", dest.display()))?;
     std::fs::write(
         dest.join("SKILL.md"),
@@ -441,11 +471,9 @@ pub fn create_skill(
     )
     .map_err(|e| format!("write SKILL.md: {e}"))?;
 
-    let mut warnings = Vec::new();
     let (links, link_warnings) = ensure_runtime_links(roots, name);
     warnings.extend(link_warnings);
 
-    let skills_dir = roots.skills_dir();
     let commit = match commit_skill(&skills_dir, name, context) {
         Ok(hash) => Some(hash),
         Err(error) => {
