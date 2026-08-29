@@ -10,9 +10,9 @@ import type { ArtifactKind } from "@/shared/lib/artifactKind";
  * this is the blessed idiom for global UI state that is neither server state
  * (TanStack Query) nor URL state (TanStack Router).
  *
- * Milestone A2 adds a `trusted` flag here — the explicit opt-in before an
- * artifact's own scripts are allowed to execute. A1 needs no such flag: its
- * renderer is inert by construction, because a `srcdoc` frame inherits the app's
+ * `trusted` is the explicit opt-in gate: an artifact's own scripts never run
+ * until the reader asks for it. Until then the panel shows the inert `srcdoc`
+ * render, which cannot execute script because it inherits the app's
  * `script-src 'self'`. See `docs/plan-artifact-preview.md` §4.2.
  */
 export type ArtifactTarget = {
@@ -29,9 +29,11 @@ export type ArtifactPanelTab = "preview" | "source";
 type Snapshot = {
   target: ArtifactTarget | null;
   tab: ArtifactPanelTab;
+  /** Set only by an explicit user action; reset whenever the target changes. */
+  trusted: boolean;
 };
 
-const CLOSED: Snapshot = { target: null, tab: "preview" };
+const CLOSED: Snapshot = { target: null, tab: "preview", trusted: false };
 
 let snapshot: Snapshot = CLOSED;
 const listeners = new Set<() => void>();
@@ -48,7 +50,7 @@ function publish(next: Snapshot) {
  */
 export function openArtifact(target: ArtifactTarget) {
   if (snapshot.target?.url === target.url) return;
-  publish({ target, tab: "preview" });
+  publish({ target, tab: "preview", trusted: false });
 }
 
 export function closeArtifact() {
@@ -59,6 +61,16 @@ export function closeArtifact() {
 export function setArtifactTab(tab: ArtifactPanelTab) {
   if (snapshot.tab === tab) return;
   publish({ ...snapshot, tab });
+}
+
+/**
+ * Opt in to running the artifact's scripts. Deliberately one-way: there is no
+ * `setTrusted(false)`, because trust is scoped to one target and is discarded
+ * wholesale when the panel closes or shows a different file.
+ */
+export function trustArtifact() {
+  if (snapshot.trusted || !snapshot.target) return;
+  publish({ ...snapshot, trusted: true });
 }
 
 export function useArtifactPanel() {

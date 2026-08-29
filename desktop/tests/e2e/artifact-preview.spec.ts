@@ -229,6 +229,74 @@ test("dragging the handle actually changes the panel width", async ({
   expect(after).toBeGreaterThan(before + 40);
 });
 
+// --- A2: the artifact:// renderer and its opt-in gate ---
+//
+// The artifact scheme is a Tauri protocol, so a browser-based harness cannot
+// load the trusted frame or probe isolation from inside it. What it can prove
+// is the gate: scripts stay unrun until the reader asks, and the switch targets
+// the isolated origin rather than widening the inert one. The frame's own
+// isolation (parent, storage, network) is enforced by the response CSP, which
+// the Rust suite pins, and was measured on WKWebView in
+// docs/spike-csp-results.md §5.
+
+test("a script-bearing artifact offers to run, and does not run first", async ({
+  page,
+}) => {
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+
+  await expect(page.getByTestId("artifact-run")).toBeVisible();
+  await expect(page.getByTestId("artifact-frame")).toHaveAttribute(
+    "data-artifact-mode",
+    "inert",
+  );
+  await expect(page.getByTestId("artifact-running-notice")).toHaveCount(0);
+});
+
+test("opting in switches the frame to the isolated artifact origin", async ({
+  page,
+}) => {
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+  await page.getByTestId("artifact-run").click();
+
+  const frame = page.getByTestId("artifact-frame");
+  await expect(frame).toHaveAttribute("data-artifact-mode", "trusted");
+  const src = await frame.getAttribute("src");
+  expect(src).toMatch(/^artifact:\/\/localhost\/[0-9a-f]{64}$/);
+
+  // Still no allow-same-origin, in the mode where scripts actually execute.
+  await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+  await expect(page.getByTestId("artifact-running-notice")).toBeVisible();
+  await expect(page.getByTestId("artifact-run")).toHaveCount(0);
+});
+
+test("an artifact without scripts is never offered the run gate", async ({
+  page,
+}) => {
+  await cardFor(page, "diagram.svg").getByTestId("file-card-preview").click();
+  await expect(page.getByTestId("artifact-frame")).toBeVisible();
+  await expect(page.getByTestId("artifact-run")).toHaveCount(0);
+});
+
+test("trust does not survive switching to another artifact", async ({
+  page,
+}) => {
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+  await page.getByTestId("artifact-run").click();
+  await expect(page.getByTestId("artifact-frame")).toHaveAttribute(
+    "data-artifact-mode",
+    "trusted",
+  );
+
+  await cardFor(page, "diagram.svg").getByTestId("file-card-preview").click();
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+
+  await expect(page.getByTestId("artifact-frame")).toHaveAttribute(
+    "data-artifact-mode",
+    "inert",
+  );
+  await expect(page.getByTestId("artifact-run")).toBeVisible();
+});
+
 test("closing the panel restores the channel", async ({ page }) => {
   await cardFor(page, "report.html").getByTestId("file-card-preview").click();
   const panel = page.getByTestId("idle-auxiliary-panel");

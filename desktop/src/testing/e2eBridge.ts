@@ -13940,6 +13940,17 @@ export function maybeInstallE2eTauriMocks() {
         if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
         return await response.arrayBuffer();
       }
+      case "stage_artifact": {
+        // The real command hands the document to Rust and returns an opaque
+        // token addressed as artifact://localhost/{token}. The artifact scheme
+        // is a Tauri protocol and does not exist in a browser, so E2E can
+        // assert the gate, the mode flip, and the URL shape — but never that
+        // the frame loads. Isolation is verified on a real WKWebView; see
+        // docs/spike-csp-results.md §5 and the A2 manual checklist.
+        return "e2e".padEnd(64, "0");
+      }
+      case "revoke_artifact":
+        return null;
       case "fetch_snapshot_bytes": {
         // The real command fetches + validates a snapshot attachment in memory
         // (size cap, SHA-256, decode). In E2E the bridge returns a minimal

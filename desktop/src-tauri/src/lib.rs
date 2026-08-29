@@ -2,6 +2,7 @@
 mod app_menu;
 mod app_state;
 mod archive;
+mod artifact_protocol;
 mod builderlab;
 mod channel_head_cache;
 mod commands;
@@ -213,6 +214,12 @@ pub fn run() {
         builder.plugin(tauri_plugin_updater::Builder::new().build())
     };
     let app = app_menu::install(builder)
+        .register_asynchronous_uri_scheme_protocol("artifact", |ctx, request, responder| {
+            // Served from an in-memory store keyed by an opaque token; the
+            // handler performs no filesystem access. See artifact_protocol.rs.
+            let store = ctx.app_handle().state::<artifact_protocol::ArtifactStore>();
+            responder.respond(artifact_protocol::handle_artifact(&store, &request));
+        })
         .register_asynchronous_uri_scheme_protocol("buzz-media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -221,6 +228,7 @@ pub fn run() {
             });
         })
         .manage(build_app_state())
+        .manage(artifact_protocol::ArtifactStore::new())
         .manage(ClipboardState::new())
         .manage(PendingCommunityDeepLinks::default())
         .manage(PendingNavigationDeepLinks::default())
@@ -668,6 +676,8 @@ pub fn run() {
             save_png_data_url,
             download_file,
             fetch_media_bytes,
+            stage_artifact,
+            revoke_artifact,
             copy_image_to_clipboard,
             copy_text_to_clipboard,
             read_clipboard_text,
