@@ -17,6 +17,7 @@ import {
 } from "../useArtifactSource";
 import { ArtifactFrame } from "./ArtifactFrame";
 import { ArtifactSourceView } from "./ArtifactSourceView";
+import { DevPreviewView } from "./DevPreviewView";
 
 function formatMib(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -40,6 +41,10 @@ export function ArtifactPanel() {
   const query = useArtifactSource(target);
 
   if (!target) return null;
+
+  // A live dev server has no bytes to fetch and no run gate: it is already
+  // running code the user started themselves. It gets its own view.
+  if (target.kind === "devServer") return <DevPreviewView target={target} />;
 
   if (query.isPending) {
     return (

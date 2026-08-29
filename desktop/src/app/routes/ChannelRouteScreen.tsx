@@ -8,6 +8,7 @@ import {
   closeArtifact,
   useArtifactPanel,
 } from "@/features/artifacts/artifactPanelStore";
+import { artifactTargetLabel } from "@/features/artifacts/artifactPanelStore";
 import { ArtifactPanel } from "@/features/artifacts/ui/ArtifactPanel";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useOpenChannelDirectoryQuery } from "@/features/channels/openChannelDirectory";
@@ -322,7 +323,9 @@ export function ChannelRouteScreen({
       currentProfile={profileQuery.data}
       idleAuxiliaryPanel={artifactTarget ? <ArtifactPanel /> : null}
       idleAuxiliaryPrefersDockedPane
-      idleAuxiliaryTitle={artifactTarget?.filename ?? ""}
+      idleAuxiliaryTitle={
+        artifactTarget ? artifactTargetLabel(artifactTarget) : ""
+      }
       onCloseIdleAuxiliaryPanel={artifactTarget ? closeArtifact : undefined}
       onCloseForumPost={() => {
         void closeForumPost(channelId);

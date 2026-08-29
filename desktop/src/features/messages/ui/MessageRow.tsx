@@ -31,7 +31,7 @@ import {
   KIND_HUDDLE_STARTED,
   KIND_STREAM_MESSAGE_DIFF,
 } from "@/shared/constants/kinds";
-import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
+import { agentAuthoredCardProps } from "@/features/messages/ui/agentAuthoredCardProps";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
@@ -437,10 +437,7 @@ export const MessageRow = React.memo(
               // config-nudge cards can authenticate the sender. Uses the
               // raw event signer (signerPubkey), not a relay-delegated display
               // author, because the agent itself must have signed the card.
-              configNudgeAuthorPubkey={getConfigNudgeAuthorPubkey(
-                message,
-                isKnownAgentPubkey,
-              )}
+              {...agentAuthoredCardProps(message, isKnownAgentPubkey)}
               content={message.body}
               messageId={message.id}
               linkPreviewsSuppressed={linkPreviewsSuppressed}

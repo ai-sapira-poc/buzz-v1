@@ -1720,6 +1720,7 @@ function MarkdownInner({
   channelNames,
   className,
   configNudgeAuthorPubkey,
+  devPreviewAuthorPubkey,
   content,
   customEmoji,
   hardLineBreaks = true,
@@ -1884,8 +1885,9 @@ function MarkdownInner({
             </AttachmentGroup>
           ) : null}
           <MessageLinkPreviews
-            {...{ messageId, previews: resolvedLinkPreviews }}
+            {...{ content, devPreviewAuthorPubkey, interactive, messageId }}
             onRemoveForEveryone={onRemoveLinkPreviewsForEveryone}
+            previews={resolvedLinkPreviews}
           />
         </VideoReviewMarkdownContext.Provider>
       </MarkdownRuntimeContext.Provider>

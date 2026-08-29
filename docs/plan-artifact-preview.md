@@ -1,6 +1,6 @@
 # Plan — Artifact preview in the desktop client
 
-Status: **A1 shipped and manually verified; A2 implemented, pending manual verification**
+Status: **A1 and A2 shipped and manually verified; Phase B implemented, e2e and manual pass outstanding**
 Scope: desktop client (`desktop/`). Phase A (attachment preview) and Phase B (live dev-server preview).
 Companion: `docs/spike-csp-results.md` — the empirical basis for §4.2, §4.4 and §6.
 
@@ -562,6 +562,62 @@ prototype; treat the tag as the follow-up when the feature earns it.
 
 ---
 
+## 8.1 Phase B — status by criterion
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Loopback-only `[preview]` detector, agent-authored messages only, `SUPPORTED_URL_RE` untouched | ✅ `shared/lib/devPreviewLink.ts` + `features/messages/ui/devPreviewAuthPubkey.ts`, 17 unit tests |
+| 2 | Compact in-message card; panel live mode with `sandbox="allow-scripts allow-forms"`, never `allow-same-origin`; header with URL, reload, open in browser | ✅ `DevPreviewCallout.tsx`, `DevPreviewView.tsx` |
+| 3 | Availability probe with timeout, error state with retry, **e2e against a local static server** | ⚠️ probe, error state and retry implemented; **the e2e is not written** — see below |
+| 4 | `frame-src` widened to loopback only, `script-src` intact, CSP snapshots green | ✅ 6 snapshot tests, incl. one rejecting any non-loopback origin |
+| 5 | Structured event tag documented, not implemented | ✅ §8, unchanged |
+| 6 | Plan, AGENTS.md snippet, manual verification script | ✅ this section + §8.2 + §8.3 |
+
+**Why criterion 3's e2e is missing.** The card is gated on the message being
+signed by a *known* agent — the pubkey must be in the managed ∪ relay agent
+baseline that `useKnownAgentPubkeys` publishes. The E2E mock bridge derives its
+relay-agent list from mock managed agents at call time, so seeding a message
+whose signer passes that gate needs bridge-side setup that does not exist yet.
+Writing a test that bypasses the gate would assert the wrong thing: the gate is
+the security-relevant half of criterion 1. The honest next step is a small
+bridge fixture that registers a known agent, then the three assertions the
+criterion asks for (card visible, panel loads content, error state with the
+server stopped).
+
+## 8.2 Snippet for AGENTS.md — git announcement convention
+
+```markdown
+### Announcing git operations
+
+Announce every git operation that moves a checkout **before** running it: the
+command and why. This includes `checkout`, `switch`, `worktree add/remove`,
+`merge`, `rebase` and `reset`. Reading commands (`status`, `log`, `diff`) need
+no announcement.
+
+One branch, one worktree, one session. Never move the checkout of the primary
+clone or of a worktree another session is using; create your own with
+`git worktree add`. To compare against a baseline without disturbing anyone,
+use a detached worktree: `git worktree add --detach <path> main`.
+```
+
+## 8.3 Manual verification script — Phase B
+
+1. Build: `just desktop-release-build`, or
+   `pnpm tauri build --features mesh-llm --target aarch64-apple-darwin --bundles app`
+   to skip the DMG step, which hangs on `hdiutil`.
+2. Start any real dev server on a loopback port — `python3 -m http.server 8000`
+   in a directory with an `index.html`, or a Vite app.
+3. From an **agent** account, post `[preview] http://localhost:8000` in a
+   channel. A card must appear with the URL in plain text and an **Open
+   preview** button. Nothing loads until you press it.
+4. Press it: the panel opens with the live page rendered, and a header showing
+   the URL, a reload button and an open-in-browser button.
+5. Stop the server, press reload: the panel must show "Nothing is answering on
+   localhost:8000" with a **Try again** button. Restart the server, press Try
+   again: the page comes back.
+6. Post the same sentinel from a **human** account: no card must appear.
+7. Post `[preview] http://evil.com:8000` from the agent account: no card.
+
 ## 9. Phase B CSP delta
 
 Stated separately because it is the one place Phase B touches app-level configuration:
@@ -569,6 +625,8 @@ Stated separately because it is the one place Phase B touches app-level configur
 ```
 frame-src 'self' artifact: http://localhost:* http://127.0.0.1:*
 ```
+
+Shipped exactly as specified; `appCsp.test.mjs` pins it.
 
 `artifact:` comes from A2; the loopback entries are Phase B. Nothing else changes.
 

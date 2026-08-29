@@ -6,7 +6,7 @@ import { toTimelineMessage } from "@/features/home/lib/inboxViewHelpers";
 import { formatTimeWithoutDayPeriod } from "@/features/messages/lib/dateFormatters";
 import { formatItemTimestamp } from "@/shared/lib/datetime";
 import type { TimelineMessage } from "@/features/messages/types";
-import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
+import { agentAuthoredCardProps } from "@/features/messages/ui/agentAuthoredCardProps";
 import { MessageActionBar } from "@/features/messages/ui/MessageActionBar";
 import { MessageAgentOwner } from "@/features/messages/ui/MessageAgentOwner";
 import { MessageMetaSeparator } from "@/features/messages/ui/MessageHeader";
@@ -261,10 +261,7 @@ export function InboxMessageRow({
               // config-nudge cards can authenticate the sender. Uses the
               // raw event signer (signerPubkey), not a relay-delegated display
               // author, because the agent itself must have signed the card.
-              configNudgeAuthorPubkey={getConfigNudgeAuthorPubkey(
-                timelineMessage,
-                isKnownAgentPubkey,
-              )}
+              {...agentAuthoredCardProps(timelineMessage, isKnownAgentPubkey)}
               content={message.content}
               messageId={message.id}
               linkPreviewsSuppressed={hasLinkPreviewSuppression(
