@@ -9,6 +9,22 @@ import {
   handleSaveCustomHarness,
   handleDeleteCustomHarness,
 } from "./e2eBridgeCustomHarnesses.ts";
+import {
+  handleAgentRuntimeSkills,
+  handleConfirmSkillImport,
+  handleCreateLibrarySkill,
+  handleListLibrarySkills,
+  handleListSkillCommits,
+  handlePreviewSkillImport,
+  handleReadAgentEvals,
+  handleReadSkillDocument,
+  handleUpdateLibrarySkill,
+  mockAgentEvals,
+  mockImportSources,
+  mockSkillCommits,
+  resetMockSkillsLibrary,
+  seedMockLibrarySkill,
+} from "./e2eBridgeSkillsLibrary.ts";
 
 import type {
   ObservedUnreadProjection,
@@ -1207,6 +1223,24 @@ declare global {
       ownerPubkey: string;
       kind: number;
     }) => boolean;
+    /** Seed the mock skills library before the panel is opened. */
+    __BUZZ_E2E_SEED_SKILLS__?: (input: {
+      skills?: { name: string; description: string; body?: string }[];
+      importSources?: Record<
+        string,
+        {
+          name: string;
+          description: string;
+          body?: string;
+          supportingFiles?: string[];
+        }[]
+      >;
+      evals?: Record<string, unknown>;
+    }) => void;
+    /** The folder path `pick_skill_import_dir` returns in the mock bridge. */
+    __BUZZ_E2E_PICK_SKILL_DIR__?: string;
+    /** Commit log of the mock skills repository, newest first. */
+    __BUZZ_E2E_SKILL_COMMITS__?: () => { hash: string; subject: string }[];
     __BUZZ_E2E_EMIT_MOCK_MESSAGE__?: (input: {
       channelName: string;
       content: string;
@@ -11156,6 +11190,20 @@ export function maybeInstallE2eTauriMocks() {
     persistMockHuddle();
     await emitMockHuddleState();
   };
+  window.__BUZZ_E2E_SEED_SKILLS__ = ({ skills, importSources, evals }) => {
+    resetMockSkillsLibrary();
+    for (const skill of skills ?? []) seedMockLibrarySkill(skill);
+    for (const [source, entries] of Object.entries(importSources ?? {})) {
+      mockImportSources.set(
+        source,
+        entries.map((entry) => ({ body: "", ...entry })),
+      );
+    }
+    for (const [slug, payload] of Object.entries(evals ?? {})) {
+      mockAgentEvals.set(slug, payload);
+    }
+  };
+  window.__BUZZ_E2E_SKILL_COMMITS__ = () => [...mockSkillCommits];
   window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__ = ({
     channelName,
     content,
@@ -13016,6 +13064,41 @@ export function maybeInstallE2eTauriMocks() {
         return activeConfig?.mock?.relayRequiresMembership ?? false;
       case "discover_acp_providers":
         return handleDiscoverAcpRuntimes(activeConfig);
+      case "list_library_skills":
+        return handleListLibrarySkills();
+      case "list_skill_commits":
+        return handleListSkillCommits((payload as { limit?: number })?.limit);
+      case "agent_runtime_skills":
+        return handleAgentRuntimeSkills(
+          (payload as { runtimeId?: string })?.runtimeId ?? "buzz-agent",
+        );
+      case "read_skill_document":
+        return handleReadSkillDocument((payload as { dir: string }).dir);
+      case "read_agent_eval_contract":
+        return handleReadAgentEvals(
+          (payload as { agentName: string }).agentName,
+        );
+      case "pick_skill_import_dir":
+        // The spec seeds the pick via `__BUZZ_E2E_PICK_SKILL_DIR__`; there is
+        // no native dialog to drive in the mock bridge.
+        return (
+          (globalThis as { __BUZZ_E2E_PICK_SKILL_DIR__?: string })
+            .__BUZZ_E2E_PICK_SKILL_DIR__ ?? null
+        );
+      case "preview_skill_import":
+        return handlePreviewSkillImport((payload as { source: string }).source);
+      case "confirm_skill_import":
+        return handleConfirmSkillImport(
+          payload as Parameters<typeof handleConfirmSkillImport>[0],
+        );
+      case "create_library_skill":
+        return handleCreateLibrarySkill(
+          payload as Parameters<typeof handleCreateLibrarySkill>[0],
+        );
+      case "update_library_skill":
+        return handleUpdateLibrarySkill(
+          payload as Parameters<typeof handleUpdateLibrarySkill>[0],
+        );
       case "save_custom_harness":
         return handleSaveCustomHarness(
           payload as Parameters<typeof handleSaveCustomHarness>[0],

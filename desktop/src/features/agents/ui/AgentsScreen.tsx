@@ -2,6 +2,8 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { usePersonasQuery } from "@/features/agents/hooks";
+import { useSkillsLibraryPanel } from "@/features/agents/skills/skillsLibraryStore";
+import { SkillsLibraryPanel } from "@/features/agents/skills/ui/SkillsLibraryPanel";
 import { useOpenDmMutation } from "@/features/channels/hooks";
 import {
   type ProfilePanelTab,
@@ -63,6 +65,7 @@ export function AgentsScreen() {
     return null;
   }, [personasQuery.data, values.profile, values.profilePersona]);
   const threadPanelWidth = useThreadPanelWidth();
+  const skillsLibrary = useSkillsLibraryPanel();
   const openDmMutation = useOpenDmMutation();
   const { goChannel } = useAppNavigation();
 
@@ -126,6 +129,14 @@ export function AgentsScreen() {
           <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
             <AgentsView />
           </React.Suspense>
+          {skillsLibrary.open && !profilePanelTarget ? (
+            <SkillsLibraryPanel
+              canResetWidth={threadPanelWidth.canReset}
+              onResetWidth={threadPanelWidth.onResetWidth}
+              onResizeStart={threadPanelWidth.onResizeStart}
+              widthPx={threadPanelWidth.widthPx}
+            />
+          ) : null}
           {profilePanelTarget ? (
             <UserProfilePanel
               canResetWidth={threadPanelWidth.canReset}

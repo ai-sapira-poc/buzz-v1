@@ -536,6 +536,7 @@ pub fn run() {
             create_library_skill,
             update_library_skill,
             list_skill_commits,
+            pick_skill_import_dir,
             terminal_runtime::terminal_attach,
             terminal_runtime::terminal_detach,
             terminal_runtime::terminal_close,

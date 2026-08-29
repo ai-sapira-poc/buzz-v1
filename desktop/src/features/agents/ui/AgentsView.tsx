@@ -1,5 +1,10 @@
 import * as React from "react";
-import { EllipsisVertical, OctagonX, Settings2 } from "lucide-react";
+import {
+  BookMarked,
+  EllipsisVertical,
+  OctagonX,
+  Settings2,
+} from "lucide-react";
 import {
   consumePendingSnapshotImport,
   subscribeSnapshotImport,
@@ -34,6 +39,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { toggleSkillsLibrary } from "@/features/agents/skills/skillsLibraryStore";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { getInheritedAgentDefaults } from "./bakedEnvHelpers";
 
@@ -159,6 +165,15 @@ export function AgentsView() {
                       ? "Agent defaults"
                       : "Set agent defaults"}
                   </Button>
+                  <Button
+                    data-testid="skills-library-button"
+                    onClick={() => toggleSkillsLibrary()}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <BookMarked />
+                    Skills library
+                  </Button>
                   {runningAgentCount > 0 ? (
                     <Button
                       disabled={isActionPending}
@@ -198,6 +213,14 @@ export function AgentsView() {
                       {hasSavedAgentDefaults
                         ? "Agent defaults"
                         : "Set agent defaults"}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        toggleSkillsLibrary();
+                      }}
+                    >
+                      <BookMarked />
+                      Skills library
                     </DropdownMenuItem>
                     {runningAgentCount > 0 ? (
                       <DropdownMenuItem

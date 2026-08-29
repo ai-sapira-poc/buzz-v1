@@ -8,6 +8,8 @@ import {
 } from "@/features/agents/lib/managedAgentControlActions";
 import { RestartDiffBadge } from "@/features/agents/ui/RestartDiffBadge";
 import { AgentConfigPanel } from "@/features/agents/ui/AgentConfigPanel";
+import { AgentEvalsSection } from "@/features/agents/skills/ui/AgentEvalsSection";
+import { AgentSkillsSection } from "@/features/agents/skills/ui/AgentSkillsSection";
 import type { IdentityArchiveActions } from "@/features/identity-archive/hooks";
 import { getPresenceLabel } from "@/features/presence/lib/presence";
 import { PresenceDot } from "@/features/presence/ui/PresenceBadge";
@@ -567,6 +569,19 @@ export function ProfileSummaryView({
                     pubkey={managedAgent.pubkey}
                     sections={["mcp", "advanced"]}
                   />
+                ) : null}
+                {managedAgent !== undefined ? (
+                  <>
+                    <AgentSkillsSection
+                      runtimeId={
+                        managedAgent.runtime ?? managedAgent.agentCommand
+                      }
+                    />
+                    <AgentEvalsSection
+                      agentName={managedAgent.name}
+                      pubkey={managedAgent.pubkey}
+                    />
+                  </>
                 ) : null}
               </div>
             ) : null}

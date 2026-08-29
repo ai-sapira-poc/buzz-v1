@@ -359,3 +359,29 @@ pub async fn list_skill_commits(limit: Option<u32>) -> Result<Vec<SkillCommit>, 
         })
         .collect())
 }
+
+/// Open the native folder picker for an import source.
+///
+/// The pick happens in Rust so the path the user chose is the same value the
+/// import guard later treats as authorized — a picker in the webview would let
+/// the frontend name any directory it liked and call it a user choice.
+///
+/// Returns `None` when the user cancels.
+#[tauri::command]
+pub async fn pick_skill_import_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_folder(move |folder| {
+        let _ = tx.send(folder);
+    });
+
+    let picked = rx.await.map_err(|_| "dialog cancelled".to_string())?;
+    let Some(folder) = picked else {
+        return Ok(None);
+    };
+    let path = folder
+        .as_path()
+        .ok_or_else(|| "the folder dialog returned an invalid path".to_string())?;
+    Ok(Some(path.to_string_lossy().to_string()))
+}
