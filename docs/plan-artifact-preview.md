@@ -573,6 +573,20 @@ prototype; treat the tag as the follow-up when the feature earns it.
 | 5 | Structured event tag documented, not implemented | ✅ §8, unchanged |
 | 6 | Plan, AGENTS.md snippet, manual verification script | ✅ this section + §8.2 + §8.3 |
 
+**Closing suite.** 1266 passed, 8 failed, 1 skipped (46.6 min). All eight sit in
+the six spec files already established as flaky — community-rail,
+message-feedback-snapshots, navigation, thread-unread, workflow-local-controls,
+workflows. A baseline run of exactly those six files against `main` failed eight
+times too, four of them the *same tests* (`thread-unread:665`,
+`workflow-local-controls:148`, `workflows:216`, `workflows:555`); the other two
+(`message-feedback-snapshots:97`, `navigation:153`) were shown pre-existing
+earlier — the first fails on `main` in isolation, the second passes 19/19 when
+repeated. `artifact-preview.spec.ts` passed. No failure is attributable to this
+branch.
+
+The branch is ready but deliberately **not merged**: that waits on the manual
+pass in §8.3.
+
 **Why criterion 3's e2e is missing.** The card is gated on the message being
 signed by a *known* agent — the pubkey must be in the managed ∪ relay agent
 baseline that `useKnownAgentPubkeys` publishes. The E2E mock bridge derives its
