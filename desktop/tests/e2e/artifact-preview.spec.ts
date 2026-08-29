@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
@@ -295,6 +297,58 @@ test("trust does not survive switching to another artifact", async ({
     "inert",
   );
   await expect(page.getByTestId("artifact-run")).toBeVisible();
+});
+
+// The sandbox half of the isolation contract IS testable here, and worth
+// automating: this harness has no CSP, so the inert frame's scripts execute,
+// which lets the real fixture run its escape attempts against the same
+// `sandbox="allow-scripts"` boundary production uses. The network probes are
+// expected to pass through here — only the response CSP blocks those, and that
+// CSP exists solely on the artifact:// scheme the browser cannot load.
+test("the sandbox denies the fixture's escape attempts", async ({ page }) => {
+  const fixture = readFileSync(
+    new URL("../../../test-fixtures/sondas.html", import.meta.url),
+    "utf8",
+  );
+  const url = `https://mock.relay/media/${"d".repeat(64)}.html`;
+  await page.route(url, (route) =>
+    route.fulfill({ body: fixture, contentType: "text/html" }),
+  );
+
+  await page.evaluate(
+    ({ href, tag }) => {
+      const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!emit) throw new Error("Mock message emitter is not installed.");
+      emit({
+        channelName: "general",
+        content: `[sondas.html](${href})`,
+        extraTags: [tag],
+      });
+    },
+    {
+      href: url,
+      tag: imeta(url, "text/html", "sondas.html", fixture.length),
+    },
+  );
+
+  await cardFor(page, "sondas.html").getByTestId("file-card-preview").click();
+  const frame = page.getByTestId("artifact-frame").contentFrame();
+
+  await expect(frame.locator("#verdict")).not.toHaveText(/NOT FRAMED/);
+
+  for (const probe of [
+    "Read parent document",
+    "Read parent location",
+    "Read top window origin",
+    "localStorage",
+    "sessionStorage",
+    "Opaque origin",
+  ]) {
+    await expect(
+      frame.locator("li").filter({ hasText: probe }).locator(".tag"),
+      `${probe} must be blocked by the frame sandbox`,
+    ).toHaveText("BLOCKED");
+  }
 });
 
 test("closing the panel restores the channel", async ({ page }) => {
