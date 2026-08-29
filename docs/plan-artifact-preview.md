@@ -1,6 +1,6 @@
 # Plan — Artifact preview in the desktop client
 
-Status: **A1 and A2 shipped and manually verified; Phase B implemented, e2e and manual pass outstanding**
+Status: **A1 and A2 shipped and manually verified; Phase B implemented and automated-verified, manual pass outstanding**
 Scope: desktop client (`desktop/`). Phase A (attachment preview) and Phase B (live dev-server preview).
 Companion: `docs/spike-csp-results.md` — the empirical basis for §4.2, §4.4 and §6.
 
@@ -568,7 +568,7 @@ prototype; treat the tag as the follow-up when the feature earns it.
 |---|---|---|
 | 1 | Loopback-only `[preview]` detector, agent-authored messages only, `SUPPORTED_URL_RE` untouched | ✅ `shared/lib/devPreviewLink.ts` + `features/messages/ui/devPreviewAuthPubkey.ts`, 17 unit tests |
 | 2 | Compact in-message card; panel live mode with `sandbox="allow-scripts allow-forms"`, never `allow-same-origin`; header with URL, reload, open in browser | ✅ `DevPreviewCallout.tsx`, `DevPreviewView.tsx` |
-| 3 | Availability probe with timeout, error state with retry, **e2e against a local static server** | ⚠️ probe, error state and retry implemented; **the e2e is not written** — see below |
+| 3 | Availability probe with timeout, error state with retry, **e2e against a local static server** | ✅ `tests/e2e/dev-preview.spec.ts`, 5 tests against a real `node:http` server |
 | 4 | `frame-src` widened to loopback only, `script-src` intact, CSP snapshots green | ✅ 6 snapshot tests, incl. one rejecting any non-loopback origin |
 | 5 | Structured event tag documented, not implemented | ✅ §8, unchanged |
 | 6 | Plan, AGENTS.md snippet, manual verification script | ✅ this section + §8.2 + §8.3 |
@@ -587,16 +587,11 @@ branch.
 The branch is ready but deliberately **not merged**: that waits on the manual
 pass in §8.3.
 
-**Why criterion 3's e2e is missing.** The card is gated on the message being
-signed by a *known* agent — the pubkey must be in the managed ∪ relay agent
-baseline that `useKnownAgentPubkeys` publishes. The E2E mock bridge derives its
-relay-agent list from mock managed agents at call time, so seeding a message
-whose signer passes that gate needs bridge-side setup that does not exist yet.
-Writing a test that bypasses the gate would assert the wrong thing: the gate is
-the security-relevant half of criterion 1. The honest next step is a small
-bridge fixture that registers a known agent, then the three assertions the
-criterion asks for (card visible, panel loads content, error state with the
-server stopped).
+**How the agent gate is exercised.** The card only renders for a signer inside
+the known-agent baseline, so the spec emits under `alice`, a default mock relay
+agent, and asserts the two negatives as well: the same sentinel from a human
+author renders nothing, and a non-loopback host renders nothing even from the
+agent. Bypassing the gate would have asserted the opposite of what it protects.
 
 ## 8.2 Snippet for AGENTS.md — git announcement convention
 
