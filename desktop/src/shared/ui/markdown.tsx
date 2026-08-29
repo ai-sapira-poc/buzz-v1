@@ -25,7 +25,6 @@ import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
 import { AttachmentGroup } from "@/shared/ui/attachment";
 import { ConfigNudgeCard } from "@/shared/ui/config-nudge-attachment";
 import { InlineChip } from "@/shared/ui/InlineChip";
-import { LinkPreviewList } from "@/shared/ui/link-preview-list";
 import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 import {
   computeConfigNudge,
@@ -63,6 +62,7 @@ import {
 } from "./markdown/ChannelDeepLink";
 import { InlineEmojiPopover } from "./markdown/InlineEmojiPopover";
 import { createLinkPreviewImageLightbox } from "./markdown/LinkPreviewImageLightbox";
+import { MessageLinkPreviews } from "./markdown/MessageLinkPreviews";
 import { MarkdownInput } from "./markdown/MarkdownInput";
 import {
   MediaContextMenu,
@@ -1883,11 +1883,9 @@ function MarkdownInner({
               <ConfigNudgeCard nudge={configNudge} />
             </AttachmentGroup>
           ) : null}
-          <LinkPreviewList
-            ImageLightbox={LinkPreviewImageLightbox}
-            key={messageId}
+          <MessageLinkPreviews
+            {...{ messageId, previews: resolvedLinkPreviews }}
             onRemoveForEveryone={onRemoveLinkPreviewsForEveryone}
-            previews={resolvedLinkPreviews}
           />
         </VideoReviewMarkdownContext.Provider>
       </MarkdownRuntimeContext.Provider>
