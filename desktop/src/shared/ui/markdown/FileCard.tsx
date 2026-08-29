@@ -1,9 +1,19 @@
-import * as React from "react";
-import { Download, FileText } from "lucide-react";
+import { Download, Eye, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 import { invokeTauri } from "@/shared/api/tauri";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
+import type { ResolvedFileCard } from "@/shared/ui/markdownFileCard";
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentMedia,
+  AttachmentTitle,
+  AttachmentTrigger,
+} from "@/shared/ui/attachment";
+import { useMarkdownRuntime } from "./runtimeContext";
 
 /** Human-readable byte size: "820 B", "12.4 KB", "3.1 MB". */
 function formatFileSize(bytes: number): string {
@@ -21,57 +31,84 @@ function formatFileSize(bytes: number): string {
 
 /**
  * File card for a generic (non-image, non-video) attachment: icon, filename,
- * size, and a download action.
+ * size, a download action, and — for previewable artifacts — a Preview action
+ * that opens the file in the artifact panel.
  *
  * Downloads go through the native `download_file` Tauri command (HTTP inside
  * the app's tunnel + a save dialog), not a plain `<a download>` link. A bare
  * link navigates the webview to the blob URL, which escapes to the OS browser
  * and gets bounced to a corporate CDN interstitial ("browser not supported").
  * The native command mirrors the image-download path.
+ *
+ * The card is built from the `Attachment` primitives rather than a single
+ * `<button>` so a second action can exist without nesting interactive elements:
+ * `AttachmentTrigger` is the full-bleed download target at `z-10`, and
+ * `AttachmentActions` sits above it at `z-20`. Clicking anywhere on the card
+ * still downloads, exactly as before.
  */
-export function FileCard({
-  href,
-  filename,
-  size,
-}: {
-  href: string;
-  filename: string;
-  size?: number;
-}) {
-  const cardRef = React.useRef<HTMLButtonElement | null>(null);
+export function FileCard({ card }: { card: ResolvedFileCard }) {
+  // Read the panel handler from the markdown runtime rather than taking it as a
+  // prop: read-only surfaces (the forum post renderer) simply omit it, and the
+  // Preview action disappears with no branching at the call site.
+  const { onOpenArtifact } = useMarkdownRuntime();
+  const { filename, href, previewKind, size } = card;
   const sizeLabel = size != null ? formatFileSize(size) : "";
-  useSmoothCorners(cardRef);
+  const canPreview = Boolean(previewKind && onOpenArtifact);
 
   return (
-    <button
-      ref={cardRef}
-      type="button"
-      onClick={() => {
-        invokeTauri("download_file", { url: href, filename }).catch(
-          (err: unknown) => {
-            const msg = err instanceof Error ? err.message : "Download failed";
-            toast.error(msg);
-          },
-        );
-      }}
+    <Attachment
+      className="my-1 inline-flex max-w-sm bg-muted/40 px-3 py-2 hover:bg-muted/70"
       data-testid="file-card"
-      className="my-1 inline-flex max-w-sm items-center gap-3 rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-left no-underline transition-colors hover:bg-muted/70"
       style={{ borderRadius: "1rem" }}
     >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground">
-        <FileText className="h-4 w-4" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
-          {filename}
-        </span>
+      <AttachmentTrigger
+        aria-label={`Download ${filename}`}
+        onClick={() => {
+          invokeTauri("download_file", { url: href, filename }).catch(
+            (err: unknown) => {
+              const msg =
+                err instanceof Error ? err.message : "Download failed";
+              toast.error(msg);
+            },
+          );
+        }}
+      />
+      <AttachmentMedia className="h-9 w-9 rounded-lg">
+        <FileText />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle className="font-medium">{filename}</AttachmentTitle>
         {sizeLabel ? (
-          <span className="block text-xs text-muted-foreground">
-            {sizeLabel}
-          </span>
+          <AttachmentDescription>{sizeLabel}</AttachmentDescription>
         ) : null}
-      </span>
-      <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
-    </button>
+      </AttachmentContent>
+      {canPreview ? (
+        <AttachmentActions>
+          <AttachmentAction
+            aria-label={`Preview ${filename}`}
+            data-testid="file-card-preview"
+            onClick={() =>
+              previewKind &&
+              onOpenArtifact?.({
+                kind: "attachment",
+                url: href,
+                filename,
+                artifact: previewKind,
+                size,
+              })
+            }
+            title="Preview"
+          >
+            <Eye />
+          </AttachmentAction>
+        </AttachmentActions>
+      ) : null}
+      {/* Decorative: the whole card is the download target, so this icon must
+          not intercept the pointer or it would create a dead zone over it. */}
+      <Download
+        aria-hidden="true"
+        className="pointer-events-none h-4 w-4 shrink-0 text-muted-foreground"
+      />
+    </Attachment>
   );
 }
