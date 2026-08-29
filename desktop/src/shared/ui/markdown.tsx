@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { requestOpenSnapshotImport } from "@/features/agents/openSnapshotImportFromUrlEvent";
+import { openArtifact } from "@/features/artifacts/artifactPanelStore";
 import { parseChannelLink } from "@/features/messages/lib/channelLink";
 import {
   parseMessageLink,
@@ -1297,9 +1298,7 @@ export function createMarkdownComponents(
       label,
     );
     if (card) {
-      return (
-        <FileCard href={card.href} filename={card.filename} size={card.size} />
-      );
+      return <FileCard card={card} />;
     }
 
     // Keep Buzz channel/message navigation in-app.
@@ -1795,6 +1794,7 @@ function MarkdownInner({
         requestOpenSnapshotImport({ fileBytes, fileName, snapshotKind });
         void goAgents();
       },
+      onOpenArtifact: openArtifact,
     }),
     [
       agentMentionPubkeysByName,

@@ -322,3 +322,42 @@ test("resolveSnapshotCard: .TEAM.PNG classifies as team snapshot card", () => {
   assert.ok(card !== null);
   assert.equal(card.snapshotKind, "team");
 });
+
+// --- previewKind: artifact preview classification (see shared/lib/artifactKind.ts) ---
+
+const HTML_URL = `https://relay.example/media/${"b".repeat(64)}.html`;
+const SVG_URL = `https://relay.example/media/${"c".repeat(64)}.bin`;
+
+test("resolveFileCard: marks an HTML attachment as previewable", () => {
+  const card = resolveFileCard(
+    { m: "text/html", filename: "report.html" },
+    HTML_URL,
+    "",
+  );
+  assert.equal(card?.previewKind, "html");
+});
+
+test("resolveFileCard: marks an SVG attachment as previewable despite octet-stream MIME", () => {
+  // The real shape on the wire — `infer` cannot sniff SVG, so it stores as
+  // application/octet-stream and the filename is the only signal.
+  const card = resolveFileCard(
+    { m: "application/octet-stream", filename: "diagram.svg" },
+    SVG_URL,
+    "",
+  );
+  assert.equal(card?.previewKind, "svg");
+});
+
+test("resolveFileCard: leaves previewKind unset for ordinary downloads", () => {
+  const card = resolveFileCard({ m: "application/pdf" }, PDF_URL, "doc.pdf");
+  assert.ok(card);
+  assert.equal(card.previewKind, undefined);
+  assert.equal("previewKind" in card, false);
+});
+
+test("resolveFileCard: image MIME still returns null, so SVG-by-MIME never reaches preview", () => {
+  assert.equal(
+    resolveFileCard({ m: "image/svg+xml" }, "https://b/x.svg", ""),
+    null,
+  );
+});

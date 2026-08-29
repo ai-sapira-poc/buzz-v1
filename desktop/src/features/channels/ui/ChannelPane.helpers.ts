@@ -13,6 +13,7 @@ export function shouldUseFocusIdleDrawer({
   hasProfilePanel,
   hasThreadSurface,
   overrideThread = false,
+  preferDockedPane = false,
   useSplitAuxiliaryPane,
 }: {
   channelManagementOpen: boolean;
@@ -22,9 +23,16 @@ export function shouldUseFocusIdleDrawer({
   hasProfilePanel: boolean;
   hasThreadSurface: boolean;
   overrideThread?: boolean;
+  /**
+   * When the caller wants a resizable docked pane instead of the full-height
+   * focus drawer. The drawer has no resize handle by design, so a panel whose
+   * contract includes resizing (the artifact preview) must opt out here.
+   */
+  preferDockedPane?: boolean;
   useSplitAuxiliaryPane: boolean;
 }): boolean {
   return (
+    !preferDockedPane &&
     (useSplitAuxiliaryPane || overrideThread) &&
     !channelManagementOpen &&
     !hasAgentSession &&

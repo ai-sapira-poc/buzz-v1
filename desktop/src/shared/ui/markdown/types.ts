@@ -1,5 +1,6 @@
 import type * as React from "react";
 
+import type { ArtifactTarget } from "@/features/artifacts/artifactPanelStore";
 import type { ParsedMessageLink } from "@/features/messages/lib/messageLink";
 import type { ParsedEntityLink } from "@/shared/lib/entityLink";
 import type { Channel } from "@/shared/api/types";
@@ -67,6 +68,13 @@ export type MarkdownRuntime = {
     fileName: string,
     snapshotKind: "agent" | "team",
   ) => void;
+  /**
+   * Called by FileCard when the reader asks to preview a previewable artifact
+   * (HTML/SVG). The implementation opens the artifact panel. Optional — when
+   * absent the Preview action is not rendered at all, which is what read-only
+   * surfaces without a panel host (the forum post renderer) want.
+   */
+  onOpenArtifact?: (target: ArtifactTarget) => void;
 };
 
 export type MarkdownProps = {

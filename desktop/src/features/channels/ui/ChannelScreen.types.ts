@@ -22,6 +22,8 @@ export type ChannelScreenProps = {
   idleAuxiliaryPanel?: ReactNode;
   idleAuxiliaryHeaderActions?: IdleAuxiliaryHeaderControls;
   idleAuxiliaryOverridesThread?: boolean;
+  /** Render the idle panel as a resizable docked pane, not a focus drawer. */
+  idleAuxiliaryPrefersDockedPane?: boolean;
   idleAuxiliaryTitle?: string;
   headerEndActions?: ReactNode;
   onAddFiles?: () => void;

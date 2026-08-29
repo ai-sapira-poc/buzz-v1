@@ -1,3 +1,7 @@
+import {
+  type ArtifactKind,
+  resolveArtifactKind,
+} from "@/shared/lib/artifactKind";
 import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
 
 /** Minimal shape of an imeta entry as consumed by the markdown renderer. */
@@ -15,6 +19,11 @@ export type ResolvedFileCard = {
   href: string;
   filename: string;
   size?: number;
+  /**
+   * Set when the attachment can be rendered in the artifact preview panel.
+   * `undefined` means download-only. See `shared/lib/artifactKind.ts`.
+   */
+  previewKind?: ArtifactKind;
 };
 
 /**
@@ -142,5 +151,11 @@ export function resolveFileCard(
   }
   const filename =
     entry.filename || childText.trim() || href.split("/").pop() || "file";
-  return { href: rewriteRelayUrl(href), filename, size: entry.size };
+  const previewKind = resolveArtifactKind({ filename, mime: entry.m });
+  return {
+    href: rewriteRelayUrl(href),
+    filename,
+    size: entry.size,
+    ...(previewKind ? { previewKind } : {}),
+  };
 }
