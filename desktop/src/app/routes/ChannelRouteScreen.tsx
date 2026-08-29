@@ -321,6 +321,7 @@ export function ChannelRouteScreen({
       currentIdentity={identityQuery.data}
       currentProfile={profileQuery.data}
       idleAuxiliaryPanel={artifactTarget ? <ArtifactPanel /> : null}
+      idleAuxiliaryPrefersDockedPane
       idleAuxiliaryTitle={artifactTarget?.filename ?? ""}
       onCloseIdleAuxiliaryPanel={artifactTarget ? closeArtifact : undefined}
       onCloseForumPost={() => {

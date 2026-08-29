@@ -92,6 +92,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   idleAuxiliaryPanel = null,
   idleAuxiliaryHeaderActions,
   idleAuxiliaryOverridesThread = false,
+  idleAuxiliaryPrefersDockedPane = false,
   idleAuxiliaryTitle = "",
   hasOlderMessages,
   historyExhausted,
@@ -451,6 +452,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     hasProfilePanel: Boolean(profilePanelPubkey),
     hasThreadSurface,
     overrideThread: overlayIdleAuxiliaryOverThread,
+    preferDockedPane: idleAuxiliaryPrefersDockedPane,
     useSplitAuxiliaryPane,
   });
   const showIdleAuxiliaryOverThread =

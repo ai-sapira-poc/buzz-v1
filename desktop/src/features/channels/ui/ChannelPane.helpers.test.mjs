@@ -93,3 +93,45 @@ test("idle auxiliary priority does not depend on thread layout mode", () => {
   assert.equal(shouldPrioritizeIdleAuxiliary(true, false), false);
   assert.equal(shouldPrioritizeIdleAuxiliary(false, true), false);
 });
+
+// --- preferDockedPane: the artifact preview panel opts out of the drawer ---
+
+const DOCKED_BASE = {
+  channelManagementOpen: false,
+  hasAgentSession: false,
+  hasIdleAuxiliaryPanel: true,
+  hasIdlePanelCloseHandler: true,
+  hasProfilePanel: false,
+  hasThreadSurface: false,
+  useSplitAuxiliaryPane: true,
+};
+
+test("shouldUseFocusIdleDrawer: an idle panel alone on a wide window is a drawer", () => {
+  // The pre-existing default, and the reason the artifact panel shipped without
+  // a resize handle: FocusThreadDrawer renders none.
+  assert.equal(shouldUseFocusIdleDrawer(DOCKED_BASE), true);
+});
+
+test("shouldUseFocusIdleDrawer: preferDockedPane opts out of the drawer", () => {
+  assert.equal(
+    shouldUseFocusIdleDrawer({ ...DOCKED_BASE, preferDockedPane: true }),
+    false,
+  );
+});
+
+test("shouldUseFocusIdleDrawer: preferDockedPane wins even over an overridden thread", () => {
+  assert.equal(
+    shouldUseFocusIdleDrawer({
+      ...DOCKED_BASE,
+      hasThreadSurface: true,
+      overrideThread: true,
+      preferDockedPane: true,
+    }),
+    false,
+  );
+});
+
+test("shouldUseFocusIdleDrawer: omitting preferDockedPane changes nothing for existing callers", () => {
+  // The projects workspace sheet must keep its drawer presentation.
+  assert.equal(shouldUseFocusIdleDrawer({ ...DOCKED_BASE }), true);
+});

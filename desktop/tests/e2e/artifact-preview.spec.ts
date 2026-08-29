@@ -193,6 +193,42 @@ test("SVG renders through the same path", async ({ page }) => {
   await expect(page.getByTestId("artifact-script-notice")).toHaveCount(0);
 });
 
+test("the panel is a resizable docked pane, not a focus drawer", async ({
+  page,
+}) => {
+  // Regression guard for the A1 manual-verification failure: the panel used to
+  // land in FocusThreadDrawer, which renders no resize handle at all, so the
+  // left edge had no drag affordance. The docked pane owns the handle.
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+  await expect(page.getByTestId("idle-auxiliary-panel")).toBeVisible();
+
+  const handle = page.getByTestId("right-auxiliary-pane-resize-handle");
+  await expect(handle).toBeVisible();
+  await expect(handle).toHaveAttribute("aria-label", "Resize panel");
+});
+
+test("dragging the handle actually changes the panel width", async ({
+  page,
+}) => {
+  await cardFor(page, "report.html").getByTestId("file-card-preview").click();
+  const panel = page.getByTestId("idle-auxiliary-panel");
+  await expect(panel).toBeVisible();
+
+  const before = (await panel.boundingBox())?.width ?? 0;
+  const handle = page.getByTestId("right-auxiliary-pane-resize-handle");
+  const box = await handle.boundingBox();
+  if (!box) throw new Error("resize handle has no box");
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 160, box.y + box.height / 2, { steps: 12 });
+  await page.mouse.up();
+
+  const after = (await panel.boundingBox())?.width ?? 0;
+  // Dragging the left edge leftwards widens the right-hand pane.
+  expect(after).toBeGreaterThan(before + 40);
+});
+
 test("closing the panel restores the channel", async ({ page }) => {
   await cardFor(page, "report.html").getByTestId("file-card-preview").click();
   const panel = page.getByTestId("idle-auxiliary-panel");
