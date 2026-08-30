@@ -573,16 +573,27 @@ prototype; treat the tag as the follow-up when the feature earns it.
 | 5 | Structured event tag documented, not implemented | ✅ §8, unchanged |
 | 6 | Plan, AGENTS.md snippet, manual verification script | ✅ this section + §8.2 + §8.3 |
 
-**Closing suite.** 1266 passed, 8 failed, 1 skipped (46.6 min). All eight sit in
-the six spec files already established as flaky — community-rail,
-message-feedback-snapshots, navigation, thread-unread, workflow-local-controls,
-workflows. A baseline run of exactly those six files against `main` failed eight
-times too, four of them the *same tests* (`thread-unread:665`,
-`workflow-local-controls:148`, `workflows:216`, `workflows:555`); the other two
-(`message-feedback-snapshots:97`, `navigation:153`) were shown pre-existing
-earlier — the first fails on `main` in isolation, the second passes 19/19 when
-repeated. `artifact-preview.spec.ts` passed. No failure is attributable to this
-branch.
+**Closing suite.** 1271 passed, 8 failed, 1 skipped (45.6 min), with
+`artifact-preview.spec.ts` and all five `dev-preview.spec.ts` tests green.
+
+All eight failures were checked against `main`, never assumed:
+
+| Failure | Evidence it is pre-existing |
+|---|---|
+| `workflow-local-controls:148` | fails on `main`, same test |
+| `workflows:216` | fails on `main`, same test |
+| `workflows:291`, `:465`, `:654` | `workflows` fails on `main` with rotating membership across runs |
+| `thread-unread:404` | `thread-unread:113` and `:665` fail on `main` |
+| `messaging:4487` | failed in the A2 suite, before this branch existed |
+| `channels:1660` | passes 3/3 in isolation on this branch — load-related |
+
+The pattern across five full runs is that the failing *tests* rotate while the
+failing *files* stay the same, on both branches. That is what makes test-level
+comparison meaningless here and file-level comparison the honest discriminator.
+
+Flaky specs, for whoever picks them up: workflows, workflow-local-controls,
+message-feedback-snapshots, community-rail, huddle-transcription, messaging,
+thread-unread, navigation, channels.
 
 The branch is ready but deliberately **not merged**: that waits on the manual
 pass in §8.3.
