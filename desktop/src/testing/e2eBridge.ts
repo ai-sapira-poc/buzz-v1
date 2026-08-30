@@ -1242,6 +1242,8 @@ declare global {
     /** Commit log of the mock skills repository, newest first. */
     __BUZZ_E2E_SKILL_COMMITS__?: () => { hash: string; subject: string }[];
     __BUZZ_E2E_EMIT_MOCK_MESSAGE__?: (input: {
+      /** Hex secret key: sign the event for real (delegated-authorship specs). */
+      signWith?: string;
       channelName: string;
       content: string;
       parentEventId?: string | null;
@@ -4999,6 +5001,7 @@ function emitMockChannelMessage(
   createdAt?: number,
   pending?: boolean,
   id?: string,
+  signWith?: string,
 ) {
   const eventKind = kind ?? 9;
   if (!parentEventId) {
@@ -5015,6 +5018,7 @@ function emitMockChannelMessage(
       pubkey,
       createdAt,
       id,
+      signWith,
     );
     if (pending) event.pending = true;
     recordMockMessage(channelId, event);
@@ -6263,7 +6267,20 @@ function createMockEvent(
   // 64 hex chars like a real event id — share-link builders reject shorter
   // ids, so copy-link buttons only render with full-length ids.
   id = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, ""),
+  // Hex secret key. Events normally carry a placeholder signature, which is
+  // fine because nothing in the client verifies them — except delegated
+  // authorship: `resolveEventAuthorPubkey` honours an `actor` tag only on an
+  // event whose signature verifies against the relay's NIP-11 identity. Specs
+  // exercising that path (the production shape for relay-side agents) pass a
+  // key so the event is genuinely signed.
+  signWith?: string,
 ): RelayEvent {
+  if (signWith) {
+    return finalizeEvent(
+      { kind, content, tags, created_at: createdAt },
+      hexToBytes(signWith),
+    ) as RelayEvent;
+  }
   return {
     id,
     pubkey,
@@ -11215,6 +11232,7 @@ export function maybeInstallE2eTauriMocks() {
     createdAt,
     pending,
     id,
+    signWith,
   }) => {
     const channel = mockChannels.find(
       (candidate) => candidate.name === channelName,
@@ -11234,6 +11252,7 @@ export function maybeInstallE2eTauriMocks() {
       createdAt,
       pending,
       id,
+      signWith,
     );
   };
   window.__BUZZ_E2E_PREPEND_MOCK_HISTORY__ = prependMockHistory;

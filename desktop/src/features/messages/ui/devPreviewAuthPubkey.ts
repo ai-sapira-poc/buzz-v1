@@ -1,4 +1,5 @@
 import type { TimelineMessage } from "@/features/messages/types";
+import { isTrustedAgentAuthor } from "./trustedAgentAuthor";
 
 /**
  * Returns the pubkey to use as `devPreviewAuthorPubkey` for a message, or
@@ -9,20 +10,18 @@ import type { TimelineMessage } from "@/features/messages/types";
  * arbitrary author should be able to put in front of a reader — so the card is
  * enabled ONLY when `message.signerPubkey` passes `isKnownAgentPubkey`.
  *
- * Authenticating the raw event signer rather than `message.pubkey` matters:
- * the display author can be relay-delegated, and gating on it would let a
- * delegated post forge an agent-authored card. Same distinction, and same
- * reasoning, as `getConfigNudgeAuthorPubkey`.
- *
- * Unlike the config nudge this places no restriction on `kind`: agents announce
- * dev servers in ordinary channel messages.
+ * Trust is decided by `isTrustedAgentAuthor`, shared with the config-nudge
+ * card. This caller opts into relay attribution, which the config nudge
+ * deliberately refuses: the callout only ever offers a loopback URL the reader
+ * must click, and refusing attribution makes it useless in production, where
+ * relay-side agents do not sign their own events. Unlike the config nudge this places no restriction on
+ * `kind`: agents announce dev servers in ordinary channel messages.
  */
 export function getDevPreviewAuthorPubkey(
-  message: Pick<TimelineMessage, "signerPubkey">,
+  message: Pick<TimelineMessage, "pubkey" | "signerPubkey">,
   isKnownAgentPubkey: (pubkey: string) => boolean,
 ): string | undefined {
-  if (message.signerPubkey && isKnownAgentPubkey(message.signerPubkey)) {
-    return message.signerPubkey;
-  }
-  return undefined;
+  return isTrustedAgentAuthor(message, isKnownAgentPubkey, {
+    acceptRelayAttribution: true,
+  });
 }

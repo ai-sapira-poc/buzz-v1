@@ -9,14 +9,14 @@ const isAgent = (pubkey) => pubkey === AGENT;
 
 test("enables the callout for a known agent signer", () => {
   assert.equal(
-    getDevPreviewAuthorPubkey({ signerPubkey: AGENT }, isAgent),
+    getDevPreviewAuthorPubkey({ pubkey: AGENT, signerPubkey: AGENT }, isAgent),
     AGENT,
   );
 });
 
 test("a human author is ignored", () => {
   assert.equal(
-    getDevPreviewAuthorPubkey({ signerPubkey: HUMAN }, isAgent),
+    getDevPreviewAuthorPubkey({ pubkey: HUMAN, signerPubkey: HUMAN }, isAgent),
     undefined,
   );
 });
@@ -29,11 +29,22 @@ test("an unsigned message is ignored", () => {
   );
 });
 
-test("gates on the signer, never on a delegated display author", () => {
-  // A delegated post carries a human signer with an agent display author; the
-  // card must not render for it.
+test("accepts an agent the relay attributed", () => {
+  // Production's shape: a relay-side agent does not sign — the relay does, and
+  // `resolveEventAuthorPubkey` only produces this divergence after verifying
+  // the relay's signature. Gating on the signer alone is what made the callout
+  // invisible in the first production build.
+  const RELAY = "r".repeat(64);
   assert.equal(
-    getDevPreviewAuthorPubkey({ pubkey: AGENT, signerPubkey: HUMAN }, isAgent),
+    getDevPreviewAuthorPubkey({ pubkey: AGENT, signerPubkey: RELAY }, isAgent),
+    AGENT,
+  );
+});
+
+test("a diverging claim whose author is not an agent is still refused", () => {
+  const RELAY = "r".repeat(64);
+  assert.equal(
+    getDevPreviewAuthorPubkey({ pubkey: HUMAN, signerPubkey: RELAY }, isAgent),
     undefined,
   );
 });
