@@ -42,6 +42,7 @@ mod relay_admission;
 mod reset;
 mod secret_store;
 mod shutdown;
+mod skills_library;
 mod team_catalog;
 mod templates;
 mod terminal_runtime;
@@ -525,6 +526,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            list_library_skills,
+            agent_runtime_skills,
+            read_skill_document,
+            read_skill_supporting_file,
+            read_agent_eval_contract,
+            preview_skill_import,
+            confirm_skill_import,
+            create_library_skill,
+            update_library_skill,
+            list_skill_commits,
+            pick_skill_import_dir,
             terminal_runtime::terminal_attach,
             terminal_runtime::terminal_detach,
             terminal_runtime::terminal_close,
