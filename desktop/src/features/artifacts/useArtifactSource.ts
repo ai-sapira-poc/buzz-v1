@@ -27,11 +27,12 @@ export type ArtifactSource =
 export function useArtifactSource(target: ArtifactTarget | null) {
   return useQuery<ArtifactSource>({
     queryKey: ["artifact-source", target?.url ?? null],
-    enabled: Boolean(target),
+    enabled: target?.kind === "attachment",
     staleTime: 5 * 60_000,
     retry: false,
     queryFn: async () => {
-      if (!target) throw new Error("no artifact selected");
+      if (target?.kind !== "attachment")
+        throw new Error("no artifact selected");
 
       // Trust the imeta size when present and refuse before spending the
       // transfer; re-check after, because imeta is sender-authored.

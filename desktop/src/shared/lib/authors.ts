@@ -65,6 +65,12 @@ export function resolveEventAuthorPubkey(input: {
   const signerPubkey = normalizePubkey(event.pubkey);
   const normalizedRelaySelf = normalizeValidPubkey(relaySelfPubkey);
 
+  // NOTE — `features/messages/ui/trustedAgentAuthor.ts` depends on the rule
+  // below: it treats `pubkey !== signerPubkey` as proof that the relay
+  // attributed this event, because divergence is only ever produced after the
+  // relay-identity and signature checks here pass. If you loosen those checks,
+  // that gate loosens with them. `authors.test.mjs` pins the invariant.
+  //
   // `actor` and author-attributing `p` tags are delegated authorship claims.
   // The relay creates these for workflow-generated and legacy relay-signed
   // attributed events, so they are only authoritative when the event is signed

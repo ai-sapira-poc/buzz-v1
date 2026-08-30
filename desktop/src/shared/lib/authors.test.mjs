@@ -126,3 +126,66 @@ test("invalid relay event signature fails closed to the signer", () => {
     RELAY,
   );
 });
+
+// --- Invariant relied on by features/messages/ui/trustedAgentAuthor.ts ---
+//
+// That gate treats `pubkey !== signerPubkey` as proof the relay attributed an
+// event, and grants agent-card trust on that basis. The proof only holds while
+// a forged attribution is incapable of producing divergence. These tests pin
+// it from this side; `trustedAgentAuthor.test.mjs` pins the other. Break one
+// and the pair should fail loudly rather than quietly widening the gate.
+
+test("invariant: a forged actor tag on a self-signed event never diverges", () => {
+  const resolved = resolve({
+    signer: "user",
+    tags: [
+      ["h", CHANNEL_ID],
+      ["actor", ATTRIBUTED_USER],
+    ],
+  });
+  assert.equal(
+    resolved,
+    SIGNER,
+    "an actor tag on an event the relay did not sign must resolve to its own signer",
+  );
+});
+
+test("invariant: attribution is refused when relay identity is unknown", () => {
+  const resolved = resolve({
+    signer: "relay",
+    relaySelfPubkey: null,
+    tags: [
+      ["h", CHANNEL_ID],
+      ["actor", ATTRIBUTED_USER],
+    ],
+  });
+  assert.equal(resolved, RELAY, "no NIP-11 identity means no attribution");
+});
+
+test("invariant: attribution is refused when the signature does not verify", () => {
+  const resolved = resolve({
+    signer: "relay",
+    tamperAfterSigning: true,
+    tags: [
+      ["h", CHANNEL_ID],
+      ["actor", ATTRIBUTED_USER],
+    ],
+  });
+  assert.equal(
+    resolved,
+    RELAY,
+    "a tampered relay event must not attribute authorship",
+  );
+});
+
+test("invariant: only a verified relay signature produces divergence", () => {
+  const resolved = resolve({
+    signer: "relay",
+    tags: [
+      ["h", CHANNEL_ID],
+      ["actor", ATTRIBUTED_USER],
+    ],
+  });
+  assert.equal(resolved, ATTRIBUTED_USER);
+  assert.notEqual(resolved, RELAY, "this is the one case that may diverge");
+});

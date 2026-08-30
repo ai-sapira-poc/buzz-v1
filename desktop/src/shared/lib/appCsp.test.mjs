@@ -35,10 +35,32 @@ test("script-src grants no inline or eval execution to the app document", () => 
   assert.equal(scriptSrc.includes("'unsafe-eval'"), false);
 });
 
-test("frame-src is scoped to self and the artifact scheme only", () => {
-  // A2's single addition. Loopback origins arrive with Phase B and must be
-  // added deliberately, not inherited from a wildcard.
-  assert.equal(directives.get("frame-src"), "'self' artifact:");
+test("frame-src is scoped to self, the artifact scheme, and loopback", () => {
+  // A2 added `artifact:`; Phase B added the two loopback origins and nothing
+  // else. Deliberate entries, never a bare `http:` wildcard.
+  assert.equal(
+    directives.get("frame-src"),
+    "'self' artifact: http://localhost:* http://127.0.0.1:*",
+  );
+});
+
+test("frame-src admits no non-loopback network origin", () => {
+  const frameSrc = directives.get("frame-src") ?? "";
+  for (const forbidden of ["http:", "https:", "*", "data:", "blob:"]) {
+    assert.equal(
+      frameSrc.split(/\s+/).includes(forbidden),
+      false,
+      `frame-src must not carry the bare token ${forbidden}`,
+    );
+  }
+  for (const host of frameSrc
+    .split(/\s+/)
+    .filter((v) => v.startsWith("http"))) {
+    assert.ok(
+      host === "http://localhost:*" || host === "http://127.0.0.1:*",
+      `unexpected frame-src origin: ${host}`,
+    );
+  }
 });
 
 test("default-src is unchanged", () => {

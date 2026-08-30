@@ -120,4 +120,6 @@ export type MarkdownProps = {
    * a nudge card.
    */
   configNudgeAuthorPubkey?: string | null;
+  /** Signer pubkey when the message is agent-authored; gates the dev-server callout. */
+  devPreviewAuthorPubkey?: string;
 };

@@ -1,6 +1,6 @@
 # Plan — Artifact preview in the desktop client
 
-Status: **A1 shipped and manually verified; A2 implemented, pending manual verification**
+Status: **A1 and A2 shipped and manually verified; Phase B implemented and automated-verified, manual pass outstanding**
 Scope: desktop client (`desktop/`). Phase A (attachment preview) and Phase B (live dev-server preview).
 Companion: `docs/spike-csp-results.md` — the empirical basis for §4.2, §4.4 and §6.
 
@@ -562,6 +562,132 @@ prototype; treat the tag as the follow-up when the feature earns it.
 
 ---
 
+## 8.1 Phase B — status by criterion
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Loopback-only `[preview]` detector, agent-authored messages only, `SUPPORTED_URL_RE` untouched | ✅ `shared/lib/devPreviewLink.ts` + `features/messages/ui/devPreviewAuthPubkey.ts`, 17 unit tests |
+| 2 | Compact in-message card; panel live mode with `sandbox="allow-scripts allow-forms"`, never `allow-same-origin`; header with URL, reload, open in browser | ✅ `DevPreviewCallout.tsx`, `DevPreviewView.tsx` |
+| 3 | Availability probe with timeout, error state with retry, **e2e against a local static server** | ✅ `tests/e2e/dev-preview.spec.ts`, 5 tests against a real `node:http` server |
+| 4 | `frame-src` widened to loopback only, `script-src` intact, CSP snapshots green | ✅ 6 snapshot tests, incl. one rejecting any non-loopback origin |
+| 5 | Structured event tag documented, not implemented | ✅ §8, unchanged |
+| 6 | Plan, AGENTS.md snippet, manual verification script | ✅ this section + §8.2 + §8.3 |
+
+**Closing suite.** 1271 passed, 8 failed, 1 skipped (45.6 min), with
+`artifact-preview.spec.ts` and all five `dev-preview.spec.ts` tests green.
+
+All eight failures were checked against `main`, never assumed:
+
+| Failure | Evidence it is pre-existing |
+|---|---|
+| `workflow-local-controls:148` | fails on `main`, same test |
+| `workflows:216` | fails on `main`, same test |
+| `workflows:291`, `:465`, `:654` | `workflows` fails on `main` with rotating membership across runs |
+| `thread-unread:404` | `thread-unread:113` and `:665` fail on `main` |
+| `messaging:4487` | failed in the A2 suite, before this branch existed |
+| `channels:1660` | passes 3/3 in isolation on this branch — load-related |
+
+The pattern across five full runs is that the failing *tests* rotate while the
+failing *files* stay the same, on both branches. That is what makes test-level
+comparison meaningless here and file-level comparison the honest discriminator.
+
+Flaky specs, for whoever picks them up: workflows, workflow-local-controls,
+message-feedback-snapshots, community-rail, huddle-transcription, messaging,
+thread-unread, navigation, channels.
+
+The branch is ready but deliberately **not merged**: that waits on the manual
+pass in §8.3.
+
+**How the agent gate is exercised.** The card only renders for a signer inside
+the known-agent baseline, so the spec emits under `alice`, a default mock relay
+agent, and asserts the two negatives as well: the same sentinel from a human
+author renders nothing, and a non-loopback host renders nothing even from the
+agent. Bypassing the gate would have asserted the opposite of what it protects.
+
+## 8.1.0 Field note: the sentinel arrives wrapped
+
+The first production build detected only a bare `[preview] http://localhost:PORT`.
+Every real sentinel arrived as `[preview] <http://localhost:8000>` — agents emit
+markdown autolinks — so the card never rendered for anyone.
+
+Worth recording because of how it was found. The first diagnosis blamed the
+trust gate: relay-attributed agents do not sign their own events, the gate read
+`signerPubkey` alone, and the mechanism fit the symptom exactly. It was wrong
+here. The agent in that deployment self-signs, so the original gate accepted it;
+only the detector failed. The mechanism was real — it is a genuine gap, fixed
+and kept — but it was not this bug, and reasoning from code alone could not tell
+the two apart.
+
+What settled it was reading the actual event out of the client's
+`channel-head-cache.db` and running the real gate and the real detector against
+it. Do that first next time: one raw event ends a diagnosis that code-reading
+can only make plausible.
+
+The detector now accepts autolinks, inline code, parentheses and full markdown
+links, and still refuses any non-loopback host in every one of those wrappings.
+
+## 8.1.1 Known and intended: config-nudge cards are invisible to relay-attributed agents
+
+**This is not a bug. Do not "fix" it without a deliberate decision.**
+
+Both agent-authored cards share one trust gate,
+`features/messages/ui/trustedAgentAuthor.ts`. It accepts an agent that signed
+its own event, and — only when the caller opts in — an agent the relay
+attributed through a verified `actor` tag.
+
+| Card | Relay attribution | Why |
+|---|---|---|
+| Dev-server preview | **accepted** | It offers a loopback URL the reader must click. Refusing attribution makes it useless: relay-side agents never sign their own events. |
+| Config nudge | **refused** | It drives configuration. Its author required the agent's own signature, pinned by `relayDelegatesToAgent_relaySigner_returnsUndefined` ("relay delegation must not be treated as an agent signature"). |
+
+The practical consequence, discovered while fixing the Phase B callout: in a
+deployment whose agents are relay-attributed rather than self-signing — which
+is the common shape — **config-nudge cards never render at all.** The gate is
+working as its author specified; the card is simply unreachable for those
+agents.
+
+Two ways that could change, both requiring a decision rather than a patch:
+give relay-side agents their own signing keys, or let the config nudge opt into
+attribution the way the callout does. The second widens what a relay-signed
+claim can trigger, so it belongs to whoever owns that card's threat model.
+
+The opt-in is per caller precisely so this stays a choice about what each card
+can cause, not one blanket rule that some future change flips for both.
+
+## 8.2 Snippet for AGENTS.md — git announcement convention
+
+```markdown
+### Announcing git operations
+
+Announce every git operation that moves a checkout **before** running it: the
+command and why. This includes `checkout`, `switch`, `worktree add/remove`,
+`merge`, `rebase` and `reset`. Reading commands (`status`, `log`, `diff`) need
+no announcement.
+
+One branch, one worktree, one session. Never move the checkout of the primary
+clone or of a worktree another session is using; create your own with
+`git worktree add`. To compare against a baseline without disturbing anyone,
+use a detached worktree: `git worktree add --detach <path> main`.
+```
+
+## 8.3 Manual verification script — Phase B
+
+1. Build: `just desktop-release-build`, or
+   `pnpm tauri build --features mesh-llm --target aarch64-apple-darwin --bundles app`
+   to skip the DMG step, which hangs on `hdiutil`.
+2. Start any real dev server on a loopback port — `python3 -m http.server 8000`
+   in a directory with an `index.html`, or a Vite app.
+3. From an **agent** account, post `[preview] http://localhost:8000` in a
+   channel. A card must appear with the URL in plain text and an **Open
+   preview** button. Nothing loads until you press it.
+4. Press it: the panel opens with the live page rendered, and a header showing
+   the URL, a reload button and an open-in-browser button.
+5. Stop the server, press reload: the panel must show "Nothing is answering on
+   localhost:8000" with a **Try again** button. Restart the server, press Try
+   again: the page comes back.
+6. Post the same sentinel from a **human** account: no card must appear.
+7. Post `[preview] http://evil.com:8000` from the agent account: no card.
+
 ## 9. Phase B CSP delta
 
 Stated separately because it is the one place Phase B touches app-level configuration:
@@ -569,6 +695,8 @@ Stated separately because it is the one place Phase B touches app-level configur
 ```
 frame-src 'self' artifact: http://localhost:* http://127.0.0.1:*
 ```
+
+Shipped exactly as specified; `appCsp.test.mjs` pins it.
 
 `artifact:` comes from A2; the loopback entries are Phase B. Nothing else changes.
 

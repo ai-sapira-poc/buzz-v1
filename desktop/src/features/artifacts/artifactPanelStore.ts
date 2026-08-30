@@ -15,14 +15,29 @@ import type { ArtifactKind } from "@/shared/lib/artifactKind";
  * render, which cannot execute script because it inherits the app's
  * `script-src 'self'`. See `docs/plan-artifact-preview.md` §4.2.
  */
-export type ArtifactTarget = {
-  kind: "attachment";
-  /** Relay media URL, already passed through `rewriteRelayUrl`. */
-  url: string;
-  filename: string;
-  artifact: ArtifactKind;
-  size?: number;
-};
+export type ArtifactTarget =
+  | {
+      kind: "attachment";
+      /** Relay media URL, already passed through `rewriteRelayUrl`. */
+      url: string;
+      filename: string;
+      artifact: ArtifactKind;
+      size?: number;
+    }
+  | {
+      /** A live dev server announced by an agent — Phase B. */
+      kind: "devServer";
+      /** Loopback URL, validated by `parseDevPreviewAnnouncements`. */
+      url: string;
+      port: number;
+    };
+
+/** Panel title for either target kind. */
+export function artifactTargetLabel(target: ArtifactTarget): string {
+  return target.kind === "attachment"
+    ? target.filename
+    : `localhost:${target.port}`;
+}
 
 export type ArtifactPanelTab = "preview" | "source";
 
@@ -51,6 +66,17 @@ function publish(next: Snapshot) {
 export function openArtifact(target: ArtifactTarget) {
   if (snapshot.target?.url === target.url) return;
   publish({ target, tab: "preview", trusted: false });
+}
+
+/**
+ * Open a live dev-server preview. Separate entry point from `openArtifact` so
+ * the two call sites read differently at a glance — one frames bytes the relay
+ * already vetted, the other frames whatever is listening on a local port.
+ */
+export function openDevPreview(
+  target: Extract<ArtifactTarget, { kind: "devServer" }>,
+) {
+  openArtifact(target);
 }
 
 export function closeArtifact() {
