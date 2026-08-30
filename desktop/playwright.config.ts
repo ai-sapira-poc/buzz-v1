@@ -21,6 +21,7 @@ export default defineConfig({
       testMatch: [
         "**/smoke.spec.ts",
         "**/artifact-preview.spec.ts",
+        "**/build-identity.spec.ts",
         "**/dev-preview.spec.ts",
         "**/skills-library.spec.ts",
         "**/thread-head-stale-edit.spec.ts",

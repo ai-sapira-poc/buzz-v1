@@ -25,7 +25,23 @@ if [[ "${BUZZ_RESET_WEBVIEW_STATE:-0}" == "1" ]]; then
     DEV_URL="${DEV_URL}?resetDevState=1"
 fi
 
-BUZZ_TAURI_CONFIG="{\"build\":{\"devUrl\":\"${DEV_URL}\",\"beforeDevCommand\":\"exec ./node_modules/.bin/vite --port ${BUZZ_VITE_PORT} --strictPort\"},\"identifier\":\"xyz.block.buzz.app.dev\",\"productName\":\"Buzz Dev\"}"
+# Badge the icon for plain dev runs too, not just worktree ones. Without this a
+# dev build outside a worktree is pixel-identical to production in the Dock and
+# the app switcher, which is how a stale instance ends up in the foreground
+# during manual verification. Same generator the worktree branch uses.
+REPO_ROOT_FOR_ICON="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+DEV_ICON_JSON=""
+if [[ -n "$REPO_ROOT_FOR_ICON" ]]; then
+    BASE_DEV_ICON_DIR="$REPO_ROOT_FOR_ICON/desktop/src-tauri/target/dev-icons"
+    mkdir -p "$BASE_DEV_ICON_DIR"
+    if swift "$REPO_ROOT_FOR_ICON/scripts/generate-dev-icon.swift" \
+        "$REPO_ROOT_FOR_ICON/desktop/src-tauri/icons/icon.icns" \
+        "$BASE_DEV_ICON_DIR/icon.icns" "dev" >/dev/null 2>&1; then
+        DEV_ICON_JSON=",\"bundle\":{\"icon\":[\"$BASE_DEV_ICON_DIR/icon.icns\"]}"
+    fi
+fi
+
+BUZZ_TAURI_CONFIG="{\"build\":{\"devUrl\":\"${DEV_URL}\",\"beforeDevCommand\":\"exec ./node_modules/.bin/vite --port ${BUZZ_VITE_PORT} --strictPort\"},\"identifier\":\"xyz.block.buzz.app.dev\",\"productName\":\"Buzz Dev\"${DEV_ICON_JSON}}"
 unset VITE_DEV_BRANCH
 
 # In worktrees, extract a label from the branch name and derive a unique app

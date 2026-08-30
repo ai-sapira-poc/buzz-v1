@@ -480,6 +480,8 @@ type E2eConfig = {
     // equals this is treated as a moderation DM (composer disabled). Absent →
     // fail open (no mod-DM detection), matching the Rust command's contract.
     relaySelf?: string | null;
+    /** Sidecars reported as zero-byte stubs by `get_sidecar_health`. */
+    stubbedSidecars?: string[];
     oaOwnerIsMe?: boolean;
     /** Whether the mock relay advertises NIP-43 membership support. Defaults to false. */
     relayRequiresMembership?: boolean;
@@ -14042,6 +14044,22 @@ export function maybeInstallE2eTauriMocks() {
         if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
         return await response.arrayBuffer();
       }
+      case "get_build_info":
+        // Fixed values so the stamp and tooltip assertions are deterministic.
+        return {
+          version: "9.9.9",
+          gitSha: "abcdef123456",
+          gitDirty: false,
+          builtAt: 1756558976,
+          profile: "release",
+          isDev: false,
+        };
+      case "get_sidecar_health":
+        // Specs that want the warning override this via mock config.
+        return {
+          stubbed: activeConfig?.mock?.stubbedSidecars ?? [],
+          checked: true,
+        };
       case "stage_artifact": {
         // The real command hands the document to Rust and returns an opaque
         // token addressed as artifact://localhost/{token}. The artifact scheme

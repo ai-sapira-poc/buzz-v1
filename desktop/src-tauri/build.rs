@@ -8,6 +8,7 @@ include!("src/managed_agents/reserved_env_keys.rs");
 use base64::Engine as _;
 
 fn main() {
+    emit_build_identity();
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_URL");
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_HTTP");
     println!("cargo:rerun-if-env-changed=BUZZ_UPDATER_PUBLIC_KEY");
@@ -141,4 +142,56 @@ fn main() {
         ),
     )
     .expect("failed to build Tauri application");
+}
+
+/// Bake the build's identity in: commit, working-tree cleanliness, timestamp
+/// and profile.
+///
+/// Two builds of this app are visually identical today — same name, same icon,
+/// same version — so a stale one in the foreground is indistinguishable from a
+/// fresh one. That has already cost a manual verification round. Surfacing the
+/// commit and the build time turns "I think this is the new build" into
+/// something checkable in two seconds.
+///
+/// Everything degrades to `unknown` rather than failing the build: a source
+/// tarball with no `.git`, or a machine without `git`, must still compile.
+fn emit_build_identity() {
+    // Without this the values freeze at whatever the first compile saw, which
+    // is worse than no stamp at all — it would confidently show the wrong sha.
+    for path in [".git/HEAD", "../../.git/HEAD"] {
+        if std::path::Path::new(path).exists() {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
+    println!("cargo:rerun-if-env-changed=BUZZ_BUILD_TIME");
+
+    let sha = run_git(&["rev-parse", "--short=12", "HEAD"]).unwrap_or_else(|| "unknown".into());
+    // `--porcelain` prints one line per modified path; any output means dirty.
+    let dirty = run_git(&["status", "--porcelain"])
+        .map(|out| !out.trim().is_empty())
+        .unwrap_or(false);
+
+    // Overridable so reproducible-build pipelines can pin it.
+    let built_at = std::env::var("BUZZ_BUILD_TIME").unwrap_or_else(|_| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".into())
+    });
+
+    println!("cargo:rustc-env=BUZZ_GIT_SHA={sha}");
+    println!("cargo:rustc-env=BUZZ_GIT_DIRTY={dirty}");
+    println!("cargo:rustc-env=BUZZ_BUILD_TIME={built_at}");
+    println!(
+        "cargo:rustc-env=BUZZ_BUILD_PROFILE={}",
+        std::env::var("PROFILE").unwrap_or_else(|_| "unknown".into())
+    );
+}
+
+fn run_git(args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git").args(args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
