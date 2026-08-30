@@ -604,6 +604,28 @@ agent, and asserts the two negatives as well: the same sentinel from a human
 author renders nothing, and a non-loopback host renders nothing even from the
 agent. Bypassing the gate would have asserted the opposite of what it protects.
 
+## 8.1.0 Field note: the sentinel arrives wrapped
+
+The first production build detected only a bare `[preview] http://localhost:PORT`.
+Every real sentinel arrived as `[preview] <http://localhost:8000>` — agents emit
+markdown autolinks — so the card never rendered for anyone.
+
+Worth recording because of how it was found. The first diagnosis blamed the
+trust gate: relay-attributed agents do not sign their own events, the gate read
+`signerPubkey` alone, and the mechanism fit the symptom exactly. It was wrong
+here. The agent in that deployment self-signs, so the original gate accepted it;
+only the detector failed. The mechanism was real — it is a genuine gap, fixed
+and kept — but it was not this bug, and reasoning from code alone could not tell
+the two apart.
+
+What settled it was reading the actual event out of the client's
+`channel-head-cache.db` and running the real gate and the real detector against
+it. Do that first next time: one raw event ends a diagnosis that code-reading
+can only make plausible.
+
+The detector now accepts autolinks, inline code, parentheses and full markdown
+links, and still refuses any non-loopback host in every one of those wrappings.
+
 ## 8.1.1 Known and intended: config-nudge cards are invisible to relay-attributed agents
 
 **This is not a bug. Do not "fix" it without a deliberate decision.**

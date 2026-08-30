@@ -14,9 +14,19 @@
  * design; `docs/plan-artifact-preview.md` §8 records it as the upgrade path.
  */
 
-/** Loopback hosts only. A hostname that merely *contains* one does not match. */
+/**
+ * Loopback hosts only. A hostname that merely *contains* one does not match.
+ *
+ * The URL may be wrapped, because agents rarely emit a bare one: markdown
+ * autolinks (`<http://…>`), inline code, parentheses and full markdown links
+ * (`[label](http://…)`) all occur in practice. The first production build
+ * matched only the bare form and so matched nothing at all — every real
+ * sentinel arrived as `[preview] <http://localhost:8000>`. Opening delimiters
+ * are skipped and excluded from the path charset so the closing one is never
+ * swallowed into the URL.
+ */
 const SENTINEL_RE =
-  /\[preview\]\s+(http:\/\/(?:localhost|127\.0\.0\.1)(?::(\d{1,5}))(?:\/[^\s<>"'`]*)?)/gi;
+  /\[preview\]\s*(?:\[[^\]\n]*\]\()?[<(`"']?\s*(http:\/\/(?:localhost|127\.0\.0\.1)(?::(\d{1,5}))(?:\/[^\s<>"'`)\]]*)?)/gi;
 
 /** Mirrors MAX_PREVIEWS in linkPreview.ts — one message cannot flood the UI. */
 const MAX_DEV_PREVIEWS = 4;

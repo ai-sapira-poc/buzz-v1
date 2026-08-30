@@ -86,3 +86,43 @@ test("is case-insensitive on the sentinel", () => {
     "http://localhost:3000",
   ]);
 });
+
+// --- Wrapped forms: what agents actually emit ---
+//
+// The first production build only matched a bare URL, so every real sentinel
+// was invisible: they arrive as `[preview] <http://localhost:8000>`. These
+// cases come from the events cached by the client during manual verification.
+
+test("accepts a markdown autolink, the shape seen in production", () => {
+  assert.deepEqual(urls("[preview] <http://localhost:8000>"), [
+    "http://localhost:8000",
+  ]);
+});
+
+test("the closing delimiter is not swallowed into the url", () => {
+  const [target] = parseDevPreviewAnnouncements(
+    "[preview] <http://localhost:8000/admin>",
+  );
+  assert.equal(target.url, "http://localhost:8000/admin");
+  assert.equal(target.port, 8000);
+});
+
+test("accepts a full markdown link", () => {
+  assert.deepEqual(urls("[preview] [localhost](http://localhost:5173/app)"), [
+    "http://localhost:5173/app",
+  ]);
+});
+
+test("accepts inline code and parentheses", () => {
+  assert.deepEqual(urls("[preview] `http://localhost:3000`"), [
+    "http://localhost:3000",
+  ]);
+  assert.deepEqual(urls("[preview] (http://localhost:3000)"), [
+    "http://localhost:3000",
+  ]);
+});
+
+test("a wrapped non-loopback host is still refused", () => {
+  assert.deepEqual(urls("[preview] <http://evil.com:8000>"), []);
+  assert.deepEqual(urls("[preview] <https://localhost:8000>"), []);
+});
