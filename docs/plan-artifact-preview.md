@@ -604,6 +604,34 @@ agent, and asserts the two negatives as well: the same sentinel from a human
 author renders nothing, and a non-loopback host renders nothing even from the
 agent. Bypassing the gate would have asserted the opposite of what it protects.
 
+## 8.1.1 Known and intended: config-nudge cards are invisible to relay-attributed agents
+
+**This is not a bug. Do not "fix" it without a deliberate decision.**
+
+Both agent-authored cards share one trust gate,
+`features/messages/ui/trustedAgentAuthor.ts`. It accepts an agent that signed
+its own event, and — only when the caller opts in — an agent the relay
+attributed through a verified `actor` tag.
+
+| Card | Relay attribution | Why |
+|---|---|---|
+| Dev-server preview | **accepted** | It offers a loopback URL the reader must click. Refusing attribution makes it useless: relay-side agents never sign their own events. |
+| Config nudge | **refused** | It drives configuration. Its author required the agent's own signature, pinned by `relayDelegatesToAgent_relaySigner_returnsUndefined` ("relay delegation must not be treated as an agent signature"). |
+
+The practical consequence, discovered while fixing the Phase B callout: in a
+deployment whose agents are relay-attributed rather than self-signing — which
+is the common shape — **config-nudge cards never render at all.** The gate is
+working as its author specified; the card is simply unreachable for those
+agents.
+
+Two ways that could change, both requiring a decision rather than a patch:
+give relay-side agents their own signing keys, or let the config nudge opt into
+attribution the way the callout does. The second widens what a relay-signed
+claim can trigger, so it belongs to whoever owns that card's threat model.
+
+The opt-in is per caller precisely so this stays a choice about what each card
+can cause, not one blanket rule that some future change flips for both.
+
 ## 8.2 Snippet for AGENTS.md — git announcement convention
 
 ```markdown
