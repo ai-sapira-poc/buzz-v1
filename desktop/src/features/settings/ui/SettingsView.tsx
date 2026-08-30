@@ -1,5 +1,9 @@
 import * as React from "react";
-import { getVersion } from "@tauri-apps/api/app";
+import {
+  formatBuildStamp,
+  formatBuildTooltip,
+} from "@/shared/lib/buildIdentity";
+import { useBuildIdentity } from "@/shared/hooks/useBuildIdentity";
 import { AlertCircle, ArrowLeft, LoaderCircle, RefreshCw } from "lucide-react";
 
 import { useMyRelayMembershipLookupQuery } from "@/features/community-members/hooks";
@@ -151,15 +155,15 @@ export function SettingsView({
   }, [myMembershipQuery.data, featureState]);
 
   const [isLoaded, setIsLoaded] = React.useState(false);
-  const [appVersion, setAppVersion] = React.useState<string | null>(null);
+  const buildInfo = useBuildIdentity().data ?? null;
+  const buildStamp = formatBuildStamp(buildInfo);
+  // Full detail on hover: the footer line has room for a short stamp only, and
+  // the commit is what actually answers "is this the build I just made?".
+  const buildTooltip = formatBuildTooltip(buildInfo);
 
   React.useEffect(() => {
     const frameId = window.requestAnimationFrame(() => setIsLoaded(true));
     return () => window.cancelAnimationFrame(frameId);
-  }, []);
-
-  React.useEffect(() => {
-    void getVersion().then(setAppVersion);
   }, []);
 
   React.useEffect(() => {
@@ -300,13 +304,14 @@ export function SettingsView({
         </SidebarContent>
 
         <SidebarFooter>
-          {appVersion ? (
+          {buildStamp ? (
             <p
               className="px-2 pb-1 text-xs text-sidebar-foreground/45"
               data-buzz-sidebar-secondary
               data-testid="settings-version"
+              title={buildTooltip || undefined}
             >
-              v{appVersion}
+              {buildStamp}
             </p>
           ) : null}
         </SidebarFooter>

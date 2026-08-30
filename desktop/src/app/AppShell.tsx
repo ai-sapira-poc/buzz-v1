@@ -22,6 +22,7 @@ import { useSettingsShortcuts } from "@/app/useSettingsShortcuts";
 import { useAppShellKeyboardShortcuts } from "@/app/useAppShellKeyboardShortcuts";
 import { useAppShellDesktopNotifications } from "@/app/useAppShellDesktopNotifications";
 import { useAppShellLifecycleEffects } from "@/app/useAppShellLifecycleEffects";
+import { useStubbedSidecarWarning } from "@/shared/hooks/useStubbedSidecarWarning";
 import { useChannelActivityProjection } from "@/app/useChannelActivityProjection";
 import { useTauriWindowDrag } from "@/app/useTauriWindowDrag";
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
@@ -659,6 +660,7 @@ export function AppShell() {
     },
     [openSearchHit],
   );
+  useStubbedSidecarWarning();
   useAppShellLifecycleEffects({
     desktopBadgeEnabled: !isHuddleRoom,
     homeBadgeCountExcludingHighPriority,

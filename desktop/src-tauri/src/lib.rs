@@ -688,6 +688,8 @@ pub fn run() {
             save_png_data_url,
             download_file,
             fetch_media_bytes,
+            get_build_info,
+            get_sidecar_health,
             stage_artifact,
             revoke_artifact,
             copy_image_to_clipboard,
