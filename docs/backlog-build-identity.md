@@ -67,3 +67,50 @@ Use instead, in order of directness:
 
 And the habit worth keeping: when a check says a feature is missing from a build
 you just made, suspect the check before the build.
+
+---
+
+# Open item: the non-worktree dev icon is NOT verified
+
+`scripts/instance-env.sh` now badges the dev icon on plain (non-worktree) runs,
+which previously only worktree runs got. **Nobody has seen it work.** Shell that
+shells out to a Swift icon generator is not covered by any test here, and the
+one non-worktree checkout on this machine was on another branch during the
+verification pass, so the change was never in play.
+
+Worse, the pass *looked* like it confirmed the icon: a badged icon appeared in
+the Dock from a checkout that did not contain the change. See the phantom
+sources below before trusting any repeat.
+
+## Verification recipe — two minutes, and the precondition is now met
+
+After this branch merges and the primary checkout is back on `main`:
+
+```bash
+cd <primary checkout>            # the main clone, not a worktree
+git branch --show-current        # must print: main
+git rev-parse --git-dir          # must equal --git-common-dir, i.e. not a worktree
+rm -rf desktop/src-tauri/target/dev-icons   # see "phantom sources"
+just desktop-standalone
+```
+
+Expected: the Dock icon carries a `dev` badge. The Dock *name* stays
+`buzz-desktop` — `tauri dev` builds no `.app`, so `productName` never reaches
+macOS. The window title is what identifies a dev build (`Buzz Dev · <commit>`).
+
+## Phantom icon sources — both produced a false positive already
+
+Two things can show a badged icon that the current code did not produce. Purge
+both before verifying, or a stale artefact will confirm whatever you hoped:
+
+1. **`desktop/src-tauri/target/dev-icons/icon.icns`** — written by any earlier
+   run, including from a different branch or worktree label, and reused as-is if
+   a config still points at it. `rm -rf` it before testing.
+2. **The LaunchServices icon cache** — macOS caches icons per bundle identifier,
+   and dev runs reuse `xyz.block.buzz.app.dev`. An icon from a previous run under
+   the same identifier can persist after the config stops supplying one. To
+   clear it: `sudo rm -rf /Library/Caches/com.apple.iconservices.store` and
+   `killall Dock`, or verify under a fresh identifier.
+
+The general lesson, which cost a verification round: an icon appearing is not
+evidence that *this* code put it there.

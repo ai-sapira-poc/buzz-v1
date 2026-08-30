@@ -40,7 +40,11 @@ export function formatBuildStamp(info: BuildInfo | null): string {
 }
 
 /**
- * Full multi-line detail for the logo tooltip.
+ * Full multi-line detail, shown on hover over the settings stamp.
+ *
+ * Says "compiled", not "built", and says why: the `.app` is written minutes
+ * after the compiler stamps the binary, so its file date is always later. That
+ * gap looked like a discrepancy the first time someone compared the two.
  *
  * `+` after the commit means the working tree had uncommitted changes, so the
  * commit alone does not describe what is running.
@@ -54,6 +58,9 @@ export function formatBuildTooltip(info: BuildInfo | null): string {
     );
   }
   const at = formatBuiltAt(info.builtAt);
-  if (at) lines.push(`built ${at}`);
+  if (at) {
+    lines.push(`compiled ${at}`);
+    lines.push("(the .app file is packaged a few minutes later)");
+  }
   return lines.join("\n");
 }

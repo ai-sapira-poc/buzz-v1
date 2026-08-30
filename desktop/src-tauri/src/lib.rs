@@ -244,6 +244,19 @@ pub fn run() {
         .manage(channel_head_cache::ChannelHeadCacheStore::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // Name the window after the build in dev. `tauri dev` produces no
+            // .app, so `productName` never reaches macOS and the Dock shows the
+            // executable name whatever the config says — the title is the only
+            // place a dev build can identify itself, and a stale instance in the
+            // foreground is exactly the confusion this prevents.
+            if let Some(title) = commands::dev_window_title(&commands::build_info(
+                app.package_info().version.to_string(),
+            )) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_title(&title);
+                }
+            }
             #[cfg(target_os = "macos")]
             {
                 tray_menu::init(&app_handle)?;

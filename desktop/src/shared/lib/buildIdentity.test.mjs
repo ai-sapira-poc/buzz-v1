@@ -53,7 +53,7 @@ test("tooltip: names the build and its commit", () => {
   const tip = formatBuildTooltip(base);
   assert.ok(tip.startsWith("Buzz 0.5.20\n"));
   assert.ok(tip.includes("commit 91798ba8c1d2"));
-  assert.ok(tip.includes("built "));
+  assert.ok(tip.includes("compiled "));
 });
 
 test("tooltip: a dev build says so", () => {
@@ -70,4 +70,13 @@ test("tooltip: uncommitted changes are spelled out, not just a plus", () => {
       "uncommitted changes",
     ),
   );
+});
+
+test("tooltip: says compiled, not built, and explains the packaging gap", () => {
+  // The .app's file date is minutes later than the compile stamp. Calling both
+  // "built" made that look like a discrepancy during manual verification.
+  const tip = formatBuildTooltip(base);
+  assert.equal(tip.includes("built "), false);
+  assert.ok(tip.includes("compiled "));
+  assert.ok(tip.includes("packaged a few minutes later"));
 });

@@ -39,7 +39,7 @@ test("the stamp carries the full build identity on hover", async ({ page }) => {
     .getAttribute("title");
   expect(tooltip).toContain("Buzz 9.9.9");
   expect(tooltip).toContain("commit abcdef123456");
-  expect(tooltip).toContain("built ");
+  expect(tooltip).toContain("compiled ");
 });
 
 test("stubbed sidecars are announced at startup, not at first use", async ({
