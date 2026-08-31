@@ -544,6 +544,7 @@ pub fn run() {
             read_skill_document,
             read_skill_supporting_file,
             read_agent_eval_contract,
+            list_agent_eval_summaries,
             preview_skill_import,
             confirm_skill_import,
             create_library_skill,
