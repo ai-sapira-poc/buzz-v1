@@ -33,6 +33,7 @@ export function EvalDashboardView() {
             action={
               <Button
                 aria-label="Refresh evals"
+                data-testid="eval-dashboard-refresh"
                 disabled={query.isFetching}
                 onClick={() => void query.refetch()}
                 size="icon"

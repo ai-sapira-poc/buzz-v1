@@ -9,6 +9,11 @@
  *    same contract as `read_agent_evals` for a missing directory) renders
  *    an explained empty state, not a blank screen or a crash.
  *
+ * I4 acceptance criterion: pressing manual refresh re-reads the listing
+ * (a folder created by hand appears, a folder removed by hand disappears)
+ * without remounting the view — i.e. via `refetch()` on the existing query,
+ * not a full-page reload.
+ *
  * The Tauri IPC bridge is stubbed at globalThis.__TAURI_INTERNALS__.invoke,
  * same pattern as acpRuntimesQuery.test.mjs and
  * UnifiedAgentsSectionCardTarget.test.mjs.
@@ -30,6 +35,7 @@ let act;
 let cleanup;
 let render;
 let screen;
+let fireEvent;
 let createElement;
 let QueryClient;
 let QueryClientProvider;
@@ -57,7 +63,9 @@ before(async () => {
     transformCallback: () => Math.random(),
   };
 
-  ({ act, cleanup, render, screen } = await import("@testing-library/react"));
+  ({ act, cleanup, render, screen, fireEvent } = await import(
+    "@testing-library/react"
+  ));
   ({ createElement } = await import("react"));
   ({ QueryClient, QueryClientProvider } = await import(
     "@tanstack/react-query"
@@ -298,4 +306,120 @@ test("EvalDashboardView_readFailure_showsRetryableErrorNotCrash", async () => {
 
   const error = screen.getByTestId("eval-dashboard-error");
   assert.match(error.textContent, /permission denied/);
+});
+
+test("EvalDashboardView_manualRefresh_pickUpsFolderCreatedByHand", async () => {
+  // I4 (R4): pressing refresh re-reads the listing without remounting the
+  // view. Simulates "create a folder by hand, press refresh → it appears" by
+  // changing what the next invoke call returns and pressing the button —
+  // the same query, refetched, not a new component instance.
+  let calls = 0;
+  listAgentEvalSummariesHandler = () => {
+    calls += 1;
+    return Promise.resolve(
+      calls === 1
+        ? [agentEvalSummary({ dirName: "agent-builder", cases: [] })]
+        : [
+            agentEvalSummary({ dirName: "agent-builder", cases: [] }),
+            agentEvalSummary({ dirName: "qa-test-empty", cases: [] }),
+          ],
+    );
+  };
+
+  let view;
+  await act(async () => {
+    view = renderView();
+  });
+  await settle();
+
+  assert.equal(screen.getAllByTestId("agent-eval-card").length, 1);
+
+  fireEvent.click(screen.getByTestId("eval-dashboard-refresh"));
+  await settle();
+
+  assert.equal(calls, 2, "refresh triggers a second read of the listing");
+  const cards = screen.getAllByTestId("agent-eval-card");
+  assert.equal(cards.length, 2, "the newly created folder is picked up");
+  assert.ok(
+    cards.some(
+      (card) => card.getAttribute("data-agent-dir") === "qa-test-empty",
+    ),
+  );
+  // Same view instance throughout — refresh is a refetch, not a remount.
+  assert.equal(
+    screen.getByTestId("eval-dashboard-view"),
+    view.getByTestId("eval-dashboard-view"),
+  );
+});
+
+test("EvalDashboardView_manualRefresh_dropsFolderRemovedByHand", async () => {
+  // I4 (R4): the inverse case — a folder deleted from disk disappears from
+  // the listing after refresh, still without a full remount.
+  let calls = 0;
+  listAgentEvalSummariesHandler = () => {
+    calls += 1;
+    return Promise.resolve(
+      calls === 1
+        ? [
+            agentEvalSummary({ dirName: "agent-builder", cases: [] }),
+            agentEvalSummary({ dirName: "qa-test-empty", cases: [] }),
+          ]
+        : [agentEvalSummary({ dirName: "agent-builder", cases: [] })],
+    );
+  };
+
+  await act(async () => {
+    renderView();
+  });
+  await settle();
+
+  assert.equal(screen.getAllByTestId("agent-eval-card").length, 2);
+
+  fireEvent.click(screen.getByTestId("eval-dashboard-refresh"));
+  await settle();
+
+  assert.equal(calls, 2);
+  const cards = screen.getAllByTestId("agent-eval-card");
+  assert.equal(cards.length, 1, "the removed folder is gone after refresh");
+  assert.equal(cards[0].getAttribute("data-agent-dir"), "agent-builder");
+});
+
+test("EvalDashboardView_manualRefresh_disablesButtonWhileFetching", async () => {
+  // Guards against double-firing refetch while a read is already in flight
+  // (`disabled={query.isFetching}` in the view).
+  let resolveSecond;
+  let calls = 0;
+  listAgentEvalSummariesHandler = () => {
+    calls += 1;
+    if (calls === 1) {
+      return Promise.resolve([
+        agentEvalSummary({ dirName: "agent-builder", cases: [] }),
+      ]);
+    }
+    return new Promise((resolve) => {
+      resolveSecond = resolve;
+    });
+  };
+
+  await act(async () => {
+    renderView();
+  });
+  await settle();
+
+  const button = screen.getByTestId("eval-dashboard-refresh");
+  fireEvent.click(button);
+  await settle();
+
+  assert.equal(
+    button.disabled,
+    true,
+    "disabled while the refetch is in flight",
+  );
+
+  await act(async () => {
+    resolveSecond([agentEvalSummary({ dirName: "agent-builder", cases: [] })]);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  assert.equal(button.disabled, false, "re-enabled once the refetch settles");
 });
