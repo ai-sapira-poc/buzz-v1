@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::skills_library::contract::{
-    read_agent_evals, read_capped, split_frontmatter, AgentEvals,
+    list_agent_evals, read_agent_evals, read_capped, split_frontmatter, AgentEvalSummary,
+    AgentEvals,
 };
 use crate::skills_library::discovery::{
     library_inventory, runtime_skill_view, LibrarySkill, RuntimeSkillView,
@@ -125,6 +126,19 @@ pub async fn read_agent_eval_contract(
     }
     // Nothing on disk: report the directory that would hold it.
     Ok(read_agent_evals(&by_slug))
+}
+
+/// List every agent's evals under `evals_dir()` — the folder listing R1 needs,
+/// as opposed to [`read_agent_eval_contract`]'s single agent by name/pubkey.
+///
+/// Read-only: only ever calls `read_dir`/`metadata`/`read_to_string` under
+/// `evals_dir()`, resolved through the same [`resolve_within`] guard as every
+/// other command here (§7). An empty or missing root comes back as an empty
+/// list, not an error — the normal state before any agent has evals.
+#[tauri::command]
+pub async fn list_agent_eval_summaries() -> Result<Vec<AgentEvalSummary>, String> {
+    let roots = roots()?;
+    Ok(list_agent_evals(&roots.evals_dir()))
 }
 
 // ── Import ───────────────────────────────────────────────────────────────────

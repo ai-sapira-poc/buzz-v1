@@ -1,12 +1,12 @@
 //! Parsers for `SKILL.md` and the eval contract (spec §2.2, §3).
 
-use super::fixtures;
+use super::{fixtures, nest};
 use crate::skills_library::contract::{
-    parse_bulletin, parse_eval_case, parse_feedback_log, parse_skill_dir, parse_skill_frontmatter,
-    read_agent_evals, split_frontmatter,
+    list_agent_evals, parse_bulletin, parse_eval_case, parse_feedback_log, parse_skill_dir,
+    parse_skill_frontmatter, read_agent_evals, split_frontmatter,
 };
 use crate::skills_library::names::DescriptionVerdict;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn frontmatter_framing_matches_hints() {
@@ -171,4 +171,196 @@ fn a_missing_eval_directory_is_empty_not_an_error() {
     let evals = read_agent_evals(Path::new("/nonexistent/evals/nadie"));
     assert!(!evals.exists);
     assert!(evals.cases.is_empty());
+}
+
+// ── list_agent_evals (I1: listing every folder under evals_dir()) ─────────
+
+/// Minimal but syntactically valid `caso-NN.md`, so `read_agent_evals` per
+/// folder reports it as a real case rather than a parse problem.
+fn valid_case_md(n: u32) -> String {
+    format!(
+        "---\ncaso: {n}\ntitulo: t\norigen: nacimiento\nfecha: 2026-01-01\nautor: a\n---\n\n## Input\n\ni\n\n## Output esperado\n\no\n"
+    )
+}
+
+#[test]
+fn list_agent_evals_lists_every_subdirectory_sorted_with_matching_counts() {
+    let nest = nest();
+    let evals_root = nest.roots.evals_dir();
+
+    // Three synthetic agents: cases + no bulletin, more cases, and an empty
+    // directory — the normal "nobody has written evals for this agent yet"
+    // state ([`read_agent_evals`]'s own doc comment), just at the listing
+    // level instead of for one already-known agent.
+    std::fs::create_dir_all(evals_root.join("zzz-agent")).unwrap();
+    std::fs::write(evals_root.join("zzz-agent/caso-01.md"), valid_case_md(1)).unwrap();
+
+    std::fs::create_dir_all(evals_root.join("aaa-agent")).unwrap();
+    std::fs::write(evals_root.join("aaa-agent/caso-01.md"), valid_case_md(1)).unwrap();
+    std::fs::write(evals_root.join("aaa-agent/caso-02.md"), valid_case_md(2)).unwrap();
+
+    std::fs::create_dir_all(evals_root.join("empty-agent")).unwrap();
+
+    let summaries = list_agent_evals(&evals_root);
+
+    // Reverification: an independent walk of the root taken right now, not a
+    // hardcoded count — this is the "coincide con una reverificación manual
+    // en el momento del test" half of I1's criterion (a), done against a
+    // deterministic fixture instead of one developer's home directory (see
+    // `list_agent_evals_matches_the_real_dev_nest` below for the literal
+    // real-nest check).
+    let mut expected_dirs: Vec<String> = std::fs::read_dir(&evals_root)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    expected_dirs.sort();
+
+    assert_eq!(
+        summaries
+            .iter()
+            .map(|s| s.dir_name.clone())
+            .collect::<Vec<_>>(),
+        expected_dirs,
+        "listing must cover every folder under the root, sorted by name"
+    );
+
+    let aaa = summaries
+        .iter()
+        .find(|s| s.dir_name == "aaa-agent")
+        .unwrap();
+    assert_eq!(aaa.evals.cases.len(), 2);
+
+    let zzz = summaries
+        .iter()
+        .find(|s| s.dir_name == "zzz-agent")
+        .unwrap();
+    assert_eq!(zzz.evals.cases.len(), 1);
+
+    let empty = summaries
+        .iter()
+        .find(|s| s.dir_name == "empty-agent")
+        .unwrap();
+    assert!(
+        empty.evals.exists,
+        "an existing empty directory is still `exists`"
+    );
+    assert!(empty.evals.cases.is_empty());
+}
+
+#[test]
+fn list_agent_evals_on_a_missing_root_is_empty_not_an_error() {
+    let summaries = list_agent_evals(Path::new("/nonexistent/evals/root"));
+    assert!(summaries.is_empty());
+}
+
+/// I1 criterion (b): a snapshot of mtime + size for every file and directory
+/// under the root, taken before and after the listing, must be identical.
+/// Runs against the real fixture tree (not a throwaway nest) precisely
+/// because it is checking that *reading* never writes — a tempdir the test
+/// itself just created would not catch a regression that only shows up on
+/// filesystems that update `atime`/metadata differently.
+#[test]
+fn list_agent_evals_does_not_modify_anything_on_disk() {
+    fn snapshot(dir: &Path, out: &mut Vec<(PathBuf, std::time::SystemTime, u64)>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let meta = entry.metadata().unwrap();
+            out.push((path.clone(), meta.modified().unwrap(), meta.len()));
+            if meta.is_dir() {
+                snapshot(&path, out);
+            }
+        }
+    }
+
+    let root = fixtures().join("evals");
+
+    let mut before = Vec::new();
+    snapshot(&root, &mut before);
+    before.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let _ = list_agent_evals(&root);
+
+    let mut after = Vec::new();
+    snapshot(&root, &mut after);
+    after.sort_by(|a, b| a.0.cmp(&b.0));
+
+    assert_eq!(
+        before, after,
+        "listing must not change mtime or size of anything under the root"
+    );
+}
+
+/// I1 criterion (c): a subdirectory that is a symlink resolving outside the
+/// root is excluded from the listing, not followed — the same containment
+/// rule `paths::resolve_within` applies everywhere else in this module
+/// (`paths.rs` §7), exercised here for the one reader that walks the root
+/// itself instead of being handed an already-resolved agent directory.
+#[test]
+#[cfg(unix)]
+fn list_agent_evals_excludes_a_symlinked_subdirectory_that_escapes_the_root() {
+    let nest = nest();
+    let evals_root = nest.roots.evals_dir();
+
+    std::fs::create_dir_all(evals_root.join("real-agent")).unwrap();
+    std::fs::write(evals_root.join("real-agent/caso-01.md"), valid_case_md(1)).unwrap();
+
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(outside.path().join("secreto")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("secreto"), evals_root.join("escapada"))
+        .unwrap();
+
+    let summaries = list_agent_evals(&evals_root);
+
+    assert_eq!(
+        summaries.len(),
+        1,
+        "the symlinked escape must not be read: {summaries:?}"
+    );
+    assert_eq!(summaries[0].dir_name, "real-agent");
+}
+
+/// I1 criterion (a), literally: against the real dev nest (`~/.buzz-dev`),
+/// the listing agrees with a fresh recount taken at the same moment.
+///
+/// Not run by default `cargo test` (`#[ignore]`): a developer's own evals
+/// folder is not a fixture. Its folder count and contents change day to day
+/// and do not exist at all on a fresh machine or in CI — asserting against
+/// it there would make this suite non-reproducible, which is the thing
+/// `list_agent_evals_lists_every_subdirectory_sorted_with_matching_counts`
+/// above exists to test deterministically instead. Run explicitly to
+/// reverify against the real disk when that is what's being asked:
+/// `cargo test --manifest-path desktop/src-tauri/Cargo.toml list_agent_evals_matches_the_real_dev_nest -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn list_agent_evals_matches_the_real_dev_nest() {
+    let evals_root = dirs::home_dir()
+        .expect("home directory must resolve")
+        .join(".buzz-dev/.agents/evals");
+
+    let summaries = list_agent_evals(&evals_root);
+
+    let mut expected: Vec<String> = std::fs::read_dir(&evals_root)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    expected.sort();
+
+    assert_eq!(
+        summaries
+            .iter()
+            .map(|s| s.dir_name.clone())
+            .collect::<Vec<_>>(),
+        expected,
+        "list_agent_evals must cover exactly the folders under ~/.buzz-dev/.agents/evals right now"
+    );
+
+    println!(
+        "{} carpetas listadas bajo ~/.buzz-dev/.agents/evals: {:?}",
+        summaries.len(),
+        expected
+    );
 }

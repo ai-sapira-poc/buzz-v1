@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use super::names::{judge_description, DescriptionVerdict};
+use super::paths::resolve_within;
 
 /// Largest file this module will read. `SKILL.md` bodies are capped at 32 KiB
 /// by the runtime itself (`hints::MAX_SKILL_BODY_BYTES`); this bound is on the
@@ -504,6 +505,61 @@ pub struct AgentEvals {
     pub bulletin: Option<Bulletin>,
     /// Cases scored in the bulletin with no `caso-NN.md`, and vice versa (§3.4).
     pub discrepancies: Vec<String>,
+}
+
+/// One agent's evals, with the directory name they were listed under.
+///
+/// `read_agent_eval_contract` reads one agent given its name or pubkey;
+/// nothing before this walked every folder under `evals_dir()` at once (§3.1
+/// — "la carpeta manda"). This is that listing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvalSummary {
+    /// The folder name as it sits on disk under `evals_dir()` — an agent's
+    /// slug, or its pubkey when that is the only directory that exists (§3.1).
+    pub dir_name: String,
+    #[serde(flatten)]
+    pub evals: AgentEvals,
+}
+
+/// List every immediate subdirectory of `evals_root` and read its evals.
+///
+/// A root that does not exist yet is an empty list, not an error — the same
+/// "nobody has written evals for this agent yet" case [`read_agent_evals`]
+/// already treats as normal, just for the whole directory instead of one
+/// agent. Sorted by directory name for a stable listing.
+///
+/// A subdirectory that is a symlink resolving outside `evals_root` is
+/// excluded rather than read: the same containment rule every other reader in
+/// this module applies through [`resolve_within`] (`paths.rs` §7), applied
+/// here to the one place that walks `evals_root` itself instead of being
+/// handed one already-resolved agent directory.
+pub fn list_agent_evals(evals_root: &Path) -> Vec<AgentEvalSummary> {
+    let Ok(entries) = std::fs::read_dir(evals_root) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|e| {
+            std::fs::metadata(e.path())
+                .map(|m| m.is_dir())
+                .unwrap_or(false)
+        })
+        .map(|e| e.path())
+        .collect();
+    dirs.sort();
+
+    let root_as_slice = [evals_root.to_path_buf()];
+    dirs.iter()
+        .filter_map(|dir| {
+            let dir_name = dir.file_name()?.to_str()?.to_string();
+            let resolved = resolve_within(dir, &root_as_slice).ok()?;
+            Some(AgentEvalSummary {
+                dir_name,
+                evals: read_agent_evals(&resolved),
+            })
+        })
+        .collect()
 }
 
 /// Read one agent's eval directory. Missing directory is not an error — it is
