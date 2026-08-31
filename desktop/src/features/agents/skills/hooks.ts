@@ -9,6 +9,7 @@ import {
   confirmSkillImport,
   createLibrarySkill,
   fetchRuntimeSkills,
+  listAgentEvalSummaries,
   listLibrarySkills,
   listSkillCommits,
   previewSkillImport,
@@ -29,6 +30,8 @@ export const skillDocumentKey = (dir: string) =>
 
 export const agentEvalsKey = (agentName: string) =>
   ["agent-evals", agentName] as const;
+
+export const agentEvalSummariesKey = ["agent-evals", "summaries"] as const;
 
 export function useLibrarySkillsQuery(options?: { enabled?: boolean }) {
   return useQuery({
@@ -88,6 +91,20 @@ export function useAgentEvalsQuery(
     enabled: Boolean(agentName) && (options?.enabled ?? true),
     queryFn: () => readAgentEvals(agentName as string, pubkey),
     queryKey: agentEvalsKey(agentName ?? ""),
+    staleTime: 15_000,
+  });
+}
+
+/**
+ * Every agent's evals (R1, R4): a listing query, not a per-agent one, so the
+ * dashboard has one call to invalidate on manual refresh (I4) instead of one
+ * per card.
+ */
+export function useAgentEvalSummariesQuery(options?: { enabled?: boolean }) {
+  return useQuery({
+    enabled: options?.enabled ?? true,
+    queryFn: listAgentEvalSummaries,
+    queryKey: agentEvalSummariesKey,
     staleTime: 15_000,
   });
 }

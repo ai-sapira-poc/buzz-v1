@@ -164,3 +164,15 @@ export type AgentEvals = {
   bulletin: Bulletin | null;
   discrepancies: string[];
 };
+
+/**
+ * One agent's evals, with the folder name it was listed under.
+ *
+ * Mirrors `AgentEvalSummary` in `skills_library::contract` — Rust flattens
+ * `evals: AgentEvals` into the same JSON object via `#[serde(flatten)]`, so
+ * on the wire this is `AgentEvals` plus `dirName`, not a nested `evals` key.
+ */
+export type AgentEvalSummary = AgentEvals & {
+  /** The folder name as it sits on disk under `evals_dir()` (§3.1). */
+  dirName: string;
+};
