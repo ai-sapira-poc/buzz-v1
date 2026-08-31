@@ -39,12 +39,15 @@ let fireEvent;
 let createElement;
 let QueryClient;
 let QueryClientProvider;
+let RouterContextProvider;
+let router;
 let EvalDashboardView;
 
 before(async () => {
   Object.assign(globalThis, {
     document: dom.window.document,
     HTMLElement: dom.window.HTMLElement,
+    self: dom.window,
     window: dom.window,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
@@ -70,6 +73,22 @@ before(async () => {
   ({ QueryClient, QueryClientProvider } = await import(
     "@tanstack/react-query"
   ));
+  const {
+    RouterContextProvider: RouterCtx,
+    createMemoryHistory,
+    createRootRoute,
+    createRouter,
+  } = await import("@tanstack/react-router");
+  RouterContextProvider = RouterCtx;
+  // A minimal in-memory router, same pattern as
+  // `inboxReopenNavigation.test.mjs`: I3's case detail renders case
+  // input/expected through `Markdown`, which reads router context
+  // (`useAppNavigation`) even though nothing here navigates.
+  const rootRoute = createRootRoute();
+  router = createRouter({
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
   ({ EvalDashboardView } = await import("./EvalDashboardView.tsx"));
 });
 
@@ -91,9 +110,13 @@ function renderView() {
   clients.push(client);
   return render(
     createElement(
-      QueryClientProvider,
-      { client },
-      createElement(EvalDashboardView),
+      RouterContextProvider,
+      { router },
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(EvalDashboardView),
+      ),
     ),
   );
 }
@@ -422,4 +445,233 @@ test("EvalDashboardView_manualRefresh_disablesButtonWhileFetching", async () => 
   });
 
   assert.equal(button.disabled, false, "re-enabled once the refetch settles");
+});
+
+// ── I3: per-agent detail (R2, R6, R7) ───────────────────────────────────────
+
+function feedbackEntry(overrides = {}) {
+  return {
+    date: "2026-08-29",
+    author: "guillermo",
+    status: "corregido",
+    body: "Nota.",
+    linkedCase: null,
+    ...overrides,
+  };
+}
+
+test("EvalDashboardView_selectCard_showsCasesWithFourFieldsAndBulletinTrendAndDate", async () => {
+  // R2 (cases: title/origin/date/author) + R6 (trend+date of the current
+  // bulletin, no time series) against a folder with a bulletin (`texter`
+  // per the PRD's success criterion).
+  listAgentEvalSummariesHandler = () =>
+    Promise.resolve([
+      agentEvalSummary({
+        dirName: "texter",
+        cases: [
+          evalCase({
+            author: "guillermo",
+            date: "2026-08-20",
+            fileName: "caso-01.md",
+            number: 1,
+            origin: "nacimiento",
+            title: "Caso de nacimiento",
+          }),
+          evalCase({
+            author: "ana",
+            date: "2026-08-25",
+            fileName: "caso-02.md",
+            number: 2,
+            origin: "feedback",
+            title: "Caso de feedback",
+          }),
+        ],
+        bulletin: {
+          date: "2026-08-30",
+          problems: [],
+          rows: [],
+          runner: "manual",
+          score: "0.85",
+          trend: "estable",
+        },
+      }),
+    ]);
+
+  await act(async () => {
+    renderView();
+  });
+  await settle();
+
+  assert.equal(screen.queryByTestId("agent-eval-detail"), null);
+
+  fireEvent.click(screen.getByTestId("agent-eval-card"));
+  await settle();
+
+  const detail = screen.getByTestId("agent-eval-detail");
+  assert.equal(detail.getAttribute("data-agent-dir"), "texter");
+
+  // R6: trend and date of the current bulletin, nothing time-series.
+  assert.equal(
+    detail.querySelector('[data-testid="agent-evals-score"]').textContent,
+    "0.85",
+  );
+  assert.match(
+    detail.querySelector('[data-testid="agent-evals-trend"]').textContent,
+    /estable/,
+  );
+  assert.match(detail.textContent, /2026-08-30/);
+
+  // R2: each case shows title, origin, date, author.
+  const cases = detail.querySelectorAll('[data-testid="agent-eval-case"]');
+  assert.equal(cases.length, 2);
+  assert.match(cases[0].textContent, /Caso de nacimiento/);
+  assert.equal(
+    cases[0].querySelector('[data-testid="agent-eval-origin"]').textContent,
+    "at birth",
+  );
+  assert.match(cases[0].textContent, /2026-08-20/);
+  assert.match(cases[0].textContent, /guillermo/);
+  assert.match(cases[1].textContent, /Caso de feedback/);
+  assert.equal(
+    cases[1].querySelector('[data-testid="agent-eval-origin"]').textContent,
+    "from feedback",
+  );
+  assert.match(cases[1].textContent, /2026-08-25/);
+  assert.match(cases[1].textContent, /ana/);
+
+  // Clicking the selected card again closes the detail.
+  fireEvent.click(screen.getByTestId("agent-eval-card"));
+  await settle();
+  assert.equal(screen.queryByTestId("agent-eval-detail"), null);
+});
+
+test("EvalDashboardView_selectCard_withNoBulletin_showsNoBulletinYet", async () => {
+  listAgentEvalSummariesHandler = () =>
+    Promise.resolve([
+      agentEvalSummary({
+        dirName: "qa-engineer",
+        cases: [evalCase()],
+      }),
+    ]);
+
+  await act(async () => {
+    renderView();
+  });
+  await settle();
+
+  fireEvent.click(screen.getByTestId("agent-eval-card"));
+  await settle();
+
+  const detail = screen.getByTestId("agent-eval-detail");
+  assert.match(detail.textContent, /No bulletin yet/);
+});
+
+test("EvalDashboardView_selectCard_feedbackLogOfSevenEntries_showsOnlyFiveMostRecent", async () => {
+  // R2's edge case: with more than 5 entries, only the 5 most recent render.
+  // The contract fixes newest-first order (§3.3), so "most recent" is the
+  // first 5 of the fixture, not the last 5.
+  const entries = [
+    feedbackEntry({ body: "Entrada 1 (más reciente)." }),
+    feedbackEntry({ body: "Entrada 2." }),
+    feedbackEntry({ body: "Entrada 3." }),
+    feedbackEntry({ body: "Entrada 4." }),
+    feedbackEntry({ body: "Entrada 5." }),
+    feedbackEntry({ body: "Entrada 6." }),
+    feedbackEntry({ body: "Entrada 7 (más antigua)." }),
+  ];
+  listAgentEvalSummariesHandler = () =>
+    Promise.resolve([
+      agentEvalSummary({ dirName: "pm", cases: [], feedback: entries }),
+    ]);
+
+  await act(async () => {
+    renderView();
+  });
+  await settle();
+
+  fireEvent.click(screen.getByTestId("agent-eval-card"));
+  await settle();
+
+  const detail = screen.getByTestId("agent-eval-detail");
+  const feedback = detail.querySelector('[data-testid="agent-evals-feedback"]');
+  assert.match(feedback.textContent, /Feedback log \(5 of 7\)/);
+  assert.match(feedback.textContent, /Entrada 1 \(más reciente\)/);
+  assert.match(feedback.textContent, /Entrada 5/);
+  assert.doesNotMatch(feedback.textContent, /Entrada 6/);
+  assert.doesNotMatch(feedback.textContent, /Entrada 7/);
+});
+
+test("EvalDashboardView_selectCard_invalidCaseAndBulletin_showPathAndReasonWithoutBreakingRender", async () => {
+  // R7: an invalid case/bulletin renders as invalid with its path and
+  // reason, and does not stop the rest of the detail from rendering.
+  listAgentEvalSummariesHandler = () =>
+    Promise.resolve([
+      agentEvalSummary({
+        dir: "/nest/.agents/evals/agent-builder",
+        dirName: "agent-builder",
+        cases: [
+          evalCase({ fileName: "caso-01.md", number: 1, title: "Caso sano" }),
+          evalCase({
+            fileName: "caso-02.md",
+            number: 2,
+            problems: [
+              {
+                code: "missing-expected",
+                message: "Falta '## Output esperado'.",
+              },
+            ],
+            title: "Caso roto",
+          }),
+        ],
+        bulletin: {
+          date: "2026-08-30",
+          problems: [
+            { code: "score-out-of-range", message: "puntuacion fuera de 0-1." },
+          ],
+          rows: [],
+          runner: "manual",
+          score: "1.40",
+          trend: "sube",
+        },
+      }),
+    ]);
+
+  await act(async () => {
+    renderView();
+  });
+  await settle();
+
+  fireEvent.click(screen.getByTestId("agent-eval-card"));
+  await settle();
+
+  const detail = screen.getByTestId("agent-eval-detail");
+
+  // Bulletin marked invalid, with its path and reason.
+  assert.ok(
+    detail.querySelector('[data-testid="agent-evals-bulletin-invalid"]'),
+  );
+  const bulletinProblems = detail.querySelector(
+    '[data-testid="agent-evals-bulletin-problems"]',
+  );
+  assert.match(bulletinProblems.textContent, /boletin-ultimo\.md/);
+  assert.match(bulletinProblems.textContent, /puntuacion fuera de 0-1/);
+
+  // The healthy case still renders normally.
+  const cases = detail.querySelectorAll('[data-testid="agent-eval-case"]');
+  assert.equal(cases.length, 2, "the broken case does not remove the other");
+  assert.match(cases[0].textContent, /Caso sano/);
+  assert.equal(
+    cases[0].querySelectorAll('[data-testid="agent-eval-case-invalid"]').length,
+    0,
+  );
+
+  // The broken case is marked invalid; opening it shows path and reason.
+  assert.ok(cases[1].querySelector('[data-testid="agent-eval-case-invalid"]'));
+  fireEvent.click(cases[1].querySelector("button"));
+  await settle();
+  const casePath = cases[1].querySelector(
+    '[data-testid="agent-eval-case-path"]',
+  );
+  assert.match(casePath.textContent, /agent-builder\/caso-02\.md/);
+  assert.match(cases[1].textContent, /Falta '## Output esperado'/);
 });
