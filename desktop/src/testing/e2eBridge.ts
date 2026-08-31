@@ -13,6 +13,7 @@ import {
   handleAgentRuntimeSkills,
   handleConfirmSkillImport,
   handleCreateLibrarySkill,
+  handleListAgentEvalSummaries,
   handleListLibrarySkills,
   handleListSkillCommits,
   handlePreviewSkillImport,
@@ -13099,6 +13100,8 @@ export function maybeInstallE2eTauriMocks() {
         return handleReadAgentEvals(
           (payload as { agentName: string }).agentName,
         );
+      case "list_agent_eval_summaries":
+        return handleListAgentEvalSummaries();
       case "pick_skill_import_dir":
         // The spec seeds the pick via `__BUZZ_E2E_PICK_SKILL_DIR__`; there is
         // no native dialog to drive in the mock bridge.

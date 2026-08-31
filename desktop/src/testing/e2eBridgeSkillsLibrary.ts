@@ -456,3 +456,17 @@ export function handleReadAgentEvals(agentName: string) {
     .replace(/^-|-$/g, "");
   return mockAgentEvals.get(slug) ?? emptyMockEvals(slug);
 }
+
+/**
+ * Every seeded agent's evals, one entry per folder (I5's dependency on I1's
+ * `list_agent_eval_summaries` — `EvalDashboardView` reads this, not
+ * `read_agent_eval_contract`). "La carpeta manda": only folders seeded via
+ * `__BUZZ_E2E_SEED_SKILLS__({ evals })` are listed, same as the real command
+ * only lists what exists under `evals_dir()`.
+ */
+export function handleListAgentEvalSummaries() {
+  return [...mockAgentEvals.entries()].map(([dirName, evals]) => ({
+    ...(evals as object),
+    dirName,
+  }));
+}

@@ -7,9 +7,14 @@ import {
   type ProfilePanelTab,
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
+import {
+  parseAgentsViewMode,
+  serializeAgentsViewMode,
+} from "@/features/agents/ui/agentsViewMode";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 type AgentsRouteSearch = {
+  agentsView?: string;
   profile?: string;
   profilePersona?: string;
   profileTab?: ProfilePanelTab;
@@ -24,6 +29,7 @@ function validateAgentsSearch(
   search: Record<string, unknown>,
 ): AgentsRouteSearch {
   return {
+    agentsView: serializeAgentsViewMode(parseAgentsViewMode(search.agentsView)),
     profile: nonEmptyString(search.profile),
     profilePersona: nonEmptyString(search.profilePersona),
     profileTab: parseProfilePanelTab(search.profileTab) ?? undefined,

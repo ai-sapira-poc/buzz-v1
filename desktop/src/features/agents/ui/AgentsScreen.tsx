@@ -6,6 +6,11 @@ import { useSkillsLibraryPanel } from "@/features/agents/skills/skillsLibrarySto
 import { SkillsLibraryPanel } from "@/features/agents/skills/ui/SkillsLibraryPanel";
 import { useOpenDmMutation } from "@/features/channels/hooks";
 import {
+  type AgentsViewMode,
+  parseAgentsViewMode,
+  serializeAgentsViewMode,
+} from "@/features/agents/ui/agentsViewMode";
+import {
   type ProfilePanelTab,
   type ProfilePanelView,
   UserProfilePanel,
@@ -22,6 +27,7 @@ import {
 } from "@/shared/context/ProfilePanelContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
+import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const AgentsView = React.lazy(async () => {
@@ -29,11 +35,19 @@ const AgentsView = React.lazy(async () => {
   return { default: module.AgentsView };
 });
 
+const EvalDashboardView = React.lazy(async () => {
+  const module = await import(
+    "@/features/agents/eval-dashboard/ui/EvalDashboardView"
+  );
+  return { default: module.EvalDashboardView };
+});
+
 type ProfilePanelTarget =
   | { kind: "pubkey"; pubkey: string }
   | { kind: "persona"; persona: AgentPersona };
 
-const AGENTS_PROFILE_SEARCH_KEYS = [
+const AGENTS_SCREEN_SEARCH_KEYS = [
+  "agentsView",
   "profile",
   "profilePersona",
   "profileTab",
@@ -44,8 +58,9 @@ export function AgentsScreen() {
   const identityQuery = useIdentityQuery();
   const personasQuery = usePersonasQuery();
   const { applyPatch, values } = useHistorySearchState(
-    AGENTS_PROFILE_SEARCH_KEYS,
+    AGENTS_SCREEN_SEARCH_KEYS,
   );
+  const agentsViewMode = parseAgentsViewMode(values.agentsView);
   const profilePanelTab = profilePanelTabFromSearch(values.profileTab);
   const profilePanelView = profilePanelViewFromSearch(values.profileView);
   const profilePanelTarget = React.useMemo<ProfilePanelTarget | null>(() => {
@@ -119,15 +134,49 @@ export function AgentsScreen() {
     [goChannel, openDmMutation],
   );
 
+  const handleAgentsViewModeChange = React.useCallback(
+    (mode: AgentsViewMode) => {
+      applyPatch({ agentsView: serializeAgentsViewMode(mode) ?? null });
+    },
+    [applyPatch],
+  );
+
   return (
     <ProfilePanelProvider
       onOpenPersonaProfilePanel={handleOpenPersonaProfilePanel}
       onOpenProfilePanel={handleOpenProfilePanel}
     >
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center justify-center border-b px-4 py-2">
+          <Tabs
+            onValueChange={(value) =>
+              handleAgentsViewModeChange(value as AgentsViewMode)
+            }
+            value={agentsViewMode}
+          >
+            <TabsList data-testid="agents-view-mode-tabs">
+              <TabsTrigger
+                data-testid="agents-view-mode-tab-agents"
+                value="agents"
+              >
+                Agents
+              </TabsTrigger>
+              <TabsTrigger
+                data-testid="agents-view-mode-tab-evals"
+                value="evals"
+              >
+                Evals
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
-            <AgentsView />
+            {agentsViewMode === "evals" ? (
+              <EvalDashboardView />
+            ) : (
+              <AgentsView />
+            )}
           </React.Suspense>
           {skillsLibrary.open && !profilePanelTarget ? (
             <SkillsLibraryPanel
