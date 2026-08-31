@@ -9,6 +9,7 @@
 import { invokeTauri } from "@/shared/api/tauri";
 import type {
   AgentEvals,
+  AgentEvalSummary,
   ConfirmedImport,
   ImportPreview,
   ImportResult,
@@ -52,6 +53,17 @@ export function readAgentEvals(
     agentName,
     pubkey: pubkey ?? null,
   });
+}
+
+/**
+ * Every agent's evals, one entry per folder under `evals_dir()` (R1).
+ *
+ * "La carpeta manda": an agent registered in `managed-agents.json` with no
+ * folder does not appear, and a folder with no matching registration still
+ * does. Read-only, same as {@link readAgentEvals}.
+ */
+export function listAgentEvalSummaries(): Promise<AgentEvalSummary[]> {
+  return invokeTauri<AgentEvalSummary[]>("list_agent_eval_summaries");
 }
 
 /** Preview an import. Reads only; writes nothing. */
