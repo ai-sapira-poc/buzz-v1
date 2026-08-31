@@ -1,3 +1,4 @@
+import * as React from "react";
 import { RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
@@ -6,18 +7,27 @@ import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { useAgentEvalSummariesQuery } from "../../skills/hooks";
 import type { AgentEvalSummary } from "../../skills/types";
+import {
+  BulletinBlock,
+  CasesBlock,
+  DiscrepanciesBlock,
+  FeedbackBlock,
+} from "../../skills/ui/EvalBlocks";
 import { computeEvalDashboardSummary } from "../lib/evalDashboardSummary";
+
+/** Last N feedback-log entries shown per agent in the detail view (R2). */
+const FEEDBACK_DETAIL_LIMIT = 5;
 
 /**
  * Every agent's evals, one card per folder (R1, R3, R5) — I2 in
- * `PLANS/PLAN_SUITE_EVALS_UI_RENDIMIENTO.md`.
+ * `PLANS/PLAN_SUITE_EVALS_UI_RENDIMIENTO.md`. Selecting a card opens its
+ * detail in place (R2, R6, R7) — I3.
  *
  * Read-only: the manual refresh (R4, wired up in I4) is the only action.
- * Selecting a card for the detail view (I3) is not built yet — cards render
- * their summary here and nothing is clickable until I3 lands.
  */
 export function EvalDashboardView() {
   const query = useAgentEvalSummariesQuery();
+  const [selectedDir, setSelectedDir] = React.useState<string | null>(null);
 
   return (
     <div
@@ -60,7 +70,15 @@ export function EvalDashboardView() {
               onRetry={() => void query.refetch()}
             />
           ) : (
-            <EvalDashboardBody summaries={query.data} />
+            <EvalDashboardBody
+              onSelectDir={(dirName) =>
+                setSelectedDir((current) =>
+                  current === dirName ? null : dirName,
+                )
+              }
+              selectedDir={selectedDir}
+              summaries={query.data}
+            />
           )}
         </div>
       </div>
@@ -68,7 +86,15 @@ export function EvalDashboardView() {
   );
 }
 
-function EvalDashboardBody({ summaries }: { summaries: AgentEvalSummary[] }) {
+function EvalDashboardBody({
+  onSelectDir,
+  selectedDir,
+  summaries,
+}: {
+  onSelectDir: (dirName: string) => void;
+  selectedDir: string | null;
+  summaries: AgentEvalSummary[];
+}) {
   // Casos límite (PRD): la raíz no existe o no es legible viene de Rust como
   // una lista vacía (mismo contrato que `read_agent_evals`, §3), no como un
   // error — así que este estado vacío también cubre esa raíz ausente, y no
@@ -89,6 +115,7 @@ function EvalDashboardBody({ summaries }: { summaries: AgentEvalSummary[] }) {
   }
 
   const summary = computeEvalDashboardSummary(summaries);
+  const selected = summaries.find((s) => s.dirName === selectedDir) ?? null;
 
   return (
     <div className="space-y-6">
@@ -98,9 +125,15 @@ function EvalDashboardBody({ summaries }: { summaries: AgentEvalSummary[] }) {
         data-testid="eval-dashboard-grid"
       >
         {summaries.map((agentSummary) => (
-          <AgentEvalCard key={agentSummary.dirName} summary={agentSummary} />
+          <AgentEvalCard
+            isSelected={agentSummary.dirName === selectedDir}
+            key={agentSummary.dirName}
+            onSelect={() => onSelectDir(agentSummary.dirName)}
+            summary={agentSummary}
+          />
         ))}
       </div>
+      {selected ? <AgentEvalDetail summary={selected} /> : null}
     </div>
   );
 }
@@ -166,7 +199,15 @@ function SummaryStat({
   );
 }
 
-function AgentEvalCard({ summary }: { summary: AgentEvalSummary }) {
+function AgentEvalCard({
+  isSelected,
+  onSelect,
+  summary,
+}: {
+  isSelected: boolean;
+  onSelect: () => void;
+  summary: AgentEvalSummary;
+}) {
   const casesByOrigin = new Map<string, number>();
   for (const evalCase of summary.cases) {
     casesByOrigin.set(
@@ -176,10 +217,16 @@ function AgentEvalCard({ summary }: { summary: AgentEvalSummary }) {
   }
 
   return (
-    <div
-      className="flex flex-col gap-2 rounded-xl border border-border/70 bg-background/70 p-4 shadow-xs"
+    <button
+      aria-pressed={isSelected}
+      className={cn(
+        "flex flex-col gap-2 rounded-xl border bg-background/70 p-4 text-left shadow-xs transition-colors hover:border-border",
+        isSelected ? "border-primary" : "border-border/70",
+      )}
       data-agent-dir={summary.dirName}
       data-testid="agent-eval-card"
+      onClick={onSelect}
+      type="button"
     >
       <p className="truncate font-mono text-sm font-medium text-foreground">
         {summary.dirName}
@@ -204,7 +251,7 @@ function AgentEvalCard({ summary }: { summary: AgentEvalSummary }) {
       )}
 
       <BulletinSummary summary={summary} />
-    </div>
+    </button>
   );
 }
 
@@ -244,6 +291,39 @@ function BulletinSummary({ summary }: { summary: AgentEvalSummary }) {
         {showTrendIcon ? <TrendIcon className="h-3 w-3" /> : null}
         {bulletin.trend}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Per-agent detail (R2, R6, R7 — I3), rendered inline below the grid when a
+ * card is selected. Reuses the same blocks as the profile's Evals section
+ * (`EvalBlocks.tsx`) so cases, the bulletin's trend+date, and invalid-case /
+ * invalid-bulletin handling render identically in both places — only the
+ * feedback log is capped here to the 5 most recent entries (R2), which the
+ * profile section shows in full.
+ */
+function AgentEvalDetail({ summary }: { summary: AgentEvalSummary }) {
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-border/70 bg-background/70"
+      data-agent-dir={summary.dirName}
+      data-testid="agent-eval-detail"
+    >
+      <div className="flex items-center justify-between border-b border-border/55 px-4 py-2.5">
+        <p className="font-mono text-sm font-medium text-foreground">
+          {summary.dirName}
+        </p>
+      </div>
+      <div className="divide-y divide-border/55">
+        <BulletinBlock evals={summary} />
+        <CasesBlock cases={summary.cases} dir={summary.dir} />
+        <FeedbackBlock
+          entries={summary.feedback}
+          limit={FEEDBACK_DETAIL_LIMIT}
+        />
+        <DiscrepanciesBlock discrepancies={summary.discrepancies} />
+      </div>
     </div>
   );
 }
