@@ -38,7 +38,7 @@ export function EvalDashboardView() {
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-7 sm:px-6 sm:py-8"
         data-scroll-restoration-id="eval-dashboard"
       >
-        <div className="mx-auto w-full max-w-6xl space-y-6">
+        <div className="mx-auto w-full max-w-6xl space-y-6 [container-type:inline-size]">
           <PageHeader
             action={
               <Button
