@@ -235,7 +235,9 @@ listas:
 ├── caso-02.md
 ├── …
 ├── feedback-log.md     ← anotaciones normalizadas, append-only
-└── boletin-ultimo.md   ← último resultado del runner
+├── boletin-ultimo.md   ← último resultado del runner
+└── boletines/          ← histórico, un boletín archivado por ronda
+    └── boletin-YYYY-MM-DD.md
 ```
 
 `<agente>` es el **slug kebab-case del nombre del agente**
@@ -247,6 +249,12 @@ Como respaldo, si ese directorio no existe se busca `~/.buzz/.agents/evals/<pubk
 (hex de 64 caracteres, `ManagedAgentRecord::pubkey`). El slug es el camino
 preferente porque es legible y lo puede escribir un humano; el pubkey es el
 desempate estable si dos agentes comparten nombre.
+
+`boletines/` es el **histórico de boletines**: un fichero por ronda, con el
+nombre `boletines/boletin-YYYY-MM-DD.md` y el formato de §3.4. El archivado se
+escribe **antes** de sobrescribir `boletin-ultimo.md`, que no cambia de nombre
+ni de ubicación; sin archivo confirmado no hay sobrescritura. La carpeta se crea
+la primera vez que hace falta. El fichero archivado se detalla en §3.4.
 
 Las evals **no** están dentro del repositorio git de skills (§5): el repo tiene
 su raíz en `.agents/skills`, y `.agents/evals` queda fuera a propósito. Versionar
@@ -322,8 +330,9 @@ feedback y el `caso-NN.md` con `origen: feedback` se refieren mutuamente.
 
 ### 3.4 `boletin-ultimo.md`
 
-Resultado de la **última** pasada del runner. Se sobrescribe entero cada vez —
-el histórico no vive aquí.
+Resultado de la **última** pasada del runner. Se sobrescribe entero cada vez; el
+histórico vive en `boletines/boletin-YYYY-MM-DD.md` (§3.1), que se escribe antes
+de esa sobrescritura.
 
 ```markdown
 ---
@@ -349,6 +358,23 @@ tendencia: sube             # sube | baja | estable | primera
 La tabla tiene esas tres columnas, con esos encabezados exactos. La columna
 `Caso` referencia `caso-NN`. Un caso presente en la tabla pero sin
 `caso-NN.md` en disco, o al revés, se muestra en el perfil como discrepancia.
+
+**El boletín archivado.** Cada ronda deja su boletín en
+`boletines/boletin-YYYY-MM-DD.md`, dentro de la carpeta del agente (§3.1).
+`YYYY-MM-DD` es la fecha de la ronda, la misma del campo `fecha`.
+
+El archivado tiene **el formato de esta sección**: el mismo frontmatter
+(`fecha`, `runner`, `puntuacion`, `tendencia`) y la misma tabla de tres columnas
+`| Caso | Puntuación | Nota |`, con esos encabezados exactos. Es la copia del
+boletín de esa ronda, no un formato aparte.
+
+**Colisión del mismo día:** dos rondas con la misma fecha escriben el mismo
+nombre y **gana la última**. El día es la granularidad del histórico, y la
+sobrescritura **se declara en el resumen de ronda del canal**: nunca es
+silenciosa.
+
+Un boletín archivado en un **formato anterior** es legítimo y **no se
+retro-convierte**. El archivo registra lo que se produjo.
 
 ---
 
