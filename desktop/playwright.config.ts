@@ -25,6 +25,7 @@ export default defineConfig({
         "**/dev-preview.spec.ts",
         "**/skills-library.spec.ts",
         "**/eval-dashboard-nav.spec.ts",
+        "**/eval-dashboard-vocabulary.spec.ts",
         "**/thread-head-stale-edit.spec.ts",
         "**/sidebar-offcanvas-rail.spec.ts",
         "**/tooltip-semantics.spec.ts",

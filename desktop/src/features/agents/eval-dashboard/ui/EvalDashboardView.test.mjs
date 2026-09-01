@@ -298,7 +298,19 @@ test("EvalDashboardView_emptyFolder_showsNoCasesYetAndStaysListed", async () => 
     /No cases yet/,
     "an empty folder reads as an explained empty state, not an error",
   );
-  assert.match(emptyCard.textContent, /No bulletin yet/);
+  // CR-8 (N3) — a card with no bulletin reads `n/a`, and never a digit: the
+  // panel does not fake a zero. The absence-of-digits assertion is the half
+  // that matters; the copy alone would still pass if someone rendered "0.00".
+  const noBulletin = emptyCard.querySelector(
+    '[data-testid="agent-eval-card-no-bulletin"]',
+  );
+  assert.ok(noBulletin, "a card without a bulletin says so explicitly");
+  assert.match(noBulletin.textContent, /n\/a/);
+  assert.doesNotMatch(
+    noBulletin.textContent,
+    /[0-9]/,
+    "never fake a score: no digit may appear where there is no bulletin",
+  );
 });
 
 test("EvalDashboardView_missingRoot_showsExplainedEmptyStateNotBlank", async () => {

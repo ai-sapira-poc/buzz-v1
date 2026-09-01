@@ -220,7 +220,7 @@ function AgentEvalCard({
     <button
       aria-pressed={isSelected}
       className={cn(
-        "flex flex-col gap-2 rounded-xl border bg-background/70 p-4 text-left shadow-xs transition-colors hover:border-border",
+        "flex flex-col gap-2 rounded-2xl border bg-muted/50 p-4 text-left shadow-xs transition-colors hover:bg-muted hover:border-border",
         isSelected ? "border-primary" : "border-border/70",
       )}
       data-agent-dir={summary.dirName}
@@ -234,13 +234,13 @@ function AgentEvalCard({
 
       {summary.cases.length === 0 ? (
         <p
-          className="text-xs text-muted-foreground"
+          className="text-xs text-[rgb(0_0_0/55%)] dark:text-[rgb(255_255_255/55%)]"
           data-testid="agent-eval-card-no-cases"
         >
           No cases yet.
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-[rgb(0_0_0/55%)] dark:text-[rgb(255_255_255/55%)]">
           {summary.cases.length} {summary.cases.length === 1 ? "case" : "cases"}
           {casesByOrigin.size > 0
             ? ` (${Array.from(casesByOrigin.entries())
@@ -260,10 +260,10 @@ function BulletinSummary({ summary }: { summary: AgentEvalSummary }) {
   if (!bulletin) {
     return (
       <p
-        className="text-xs text-muted-foreground"
+        className="text-2xs text-[rgb(0_0_0/55%)] dark:text-[rgb(255_255_255/55%)]"
         data-testid="agent-eval-card-no-bulletin"
       >
-        No bulletin yet.
+        n/a
       </p>
     );
   }
@@ -276,7 +276,10 @@ function BulletinSummary({ summary }: { summary: AgentEvalSummary }) {
       className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
       data-testid="agent-eval-card-bulletin"
     >
-      <span className="text-sm font-medium text-foreground">
+      <span
+        className="text-lg font-medium leading-none text-foreground"
+        data-testid="agent-eval-card-score"
+      >
         {bulletin.score}
       </span>
       <span
