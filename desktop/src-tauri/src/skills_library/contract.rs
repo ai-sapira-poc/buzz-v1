@@ -459,6 +459,30 @@ pub fn parse_bulletin(content: &str) -> Bulletin {
         });
     }
 
+    // R7 — `puntuacion` out of 0.00–1.00 is an invalid bulletin (§3.4). Kept as
+    // its own branch, deliberately separate from the `tendencia` check above and
+    // from the field read below: an ABSENT `puntuacion` is a legitimate bulletin
+    // that simply has no score (R7b), not an invalid one. Folding the range test
+    // into the read would make "absent" and "out of range" the same code path,
+    // which is exactly how R7b turns into R7.
+    let raw_score = yaml_field(&map, "puntuacion").unwrap_or_default();
+    if !raw_score.trim().is_empty() {
+        let in_range = raw_score
+            .trim()
+            .parse::<f64>()
+            .map(|n| (0.0..=1.0).contains(&n))
+            .unwrap_or(false);
+        if !in_range {
+            problems.push(SkillProblem {
+                code: "badScore",
+                message: format!(
+                    "`puntuacion` must be a decimal between 0.00 and 1.00; found `{}`.",
+                    raw_score.trim()
+                ),
+            });
+        }
+    }
+
     let mut rows = Vec::new();
     for line in body.lines() {
         let trimmed = line.trim();
@@ -520,6 +544,34 @@ pub struct AgentEvalSummary {
     pub dir_name: String,
     #[serde(flatten)]
     pub evals: AgentEvals,
+}
+
+/// The whole evals listing: the root that was read, plus one entry per agent.
+///
+/// R3 — the root travels with the response even when the listing is empty. A
+/// missing root and a root with no agents both come back as zero agents
+/// (`list_agent_evals`), so the list alone cannot tell "nobody has written
+/// evals yet" apart from "this build is looking at the wrong directory". The
+/// path is the only thing that distinguishes them, and it lives nowhere else:
+/// `AgentEvals.dir` is per agent, so an empty listing carries no `dir` at all.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvalListing {
+    /// The directory that was read, whether or not it exists.
+    pub root: String,
+    pub agents: Vec<AgentEvalSummary>,
+}
+
+/// Read `evals_root` into an [`AgentEvalListing`].
+///
+/// Wraps [`list_agent_evals`] rather than replacing it: the containment and
+/// read-only guarantees (§7, R8) live there and are covered by its own tests,
+/// and this adds only the root path to the response.
+pub fn list_agent_eval_listing(evals_root: &Path) -> AgentEvalListing {
+    AgentEvalListing {
+        root: evals_root.to_string_lossy().to_string(),
+        agents: list_agent_evals(evals_root),
+    }
 }
 
 /// List every immediate subdirectory of `evals_root` and read its evals.

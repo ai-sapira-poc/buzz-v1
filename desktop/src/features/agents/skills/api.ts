@@ -9,7 +9,7 @@
 import { invokeTauri } from "@/shared/api/tauri";
 import type {
   AgentEvals,
-  AgentEvalSummary,
+  AgentEvalListing,
   ConfirmedImport,
   ImportPreview,
   ImportResult,
@@ -62,8 +62,8 @@ export function readAgentEvals(
  * folder does not appear, and a folder with no matching registration still
  * does. Read-only, same as {@link readAgentEvals}.
  */
-export function listAgentEvalSummaries(): Promise<AgentEvalSummary[]> {
-  return invokeTauri<AgentEvalSummary[]>("list_agent_eval_summaries");
+export function listAgentEvalSummaries(): Promise<AgentEvalListing> {
+  return invokeTauri<AgentEvalListing>("list_agent_eval_summaries");
 }
 
 /** Preview an import. Reads only; writes nothing. */

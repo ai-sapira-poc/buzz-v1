@@ -77,7 +77,7 @@ export function EvalDashboardView() {
                 )
               }
               selectedDir={selectedDir}
-              summaries={query.data}
+              summaries={query.data.agents}
             />
           )}
         </div>

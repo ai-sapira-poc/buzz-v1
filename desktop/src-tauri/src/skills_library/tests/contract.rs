@@ -2,8 +2,8 @@
 
 use super::{fixtures, nest};
 use crate::skills_library::contract::{
-    list_agent_evals, parse_bulletin, parse_eval_case, parse_feedback_log, parse_skill_dir,
-    parse_skill_frontmatter, read_agent_evals, split_frontmatter,
+    list_agent_eval_listing, list_agent_evals, parse_bulletin, parse_eval_case, parse_feedback_log,
+    parse_skill_dir, parse_skill_frontmatter, read_agent_evals, split_frontmatter,
 };
 use crate::skills_library::names::DescriptionVerdict;
 use std::path::{Path, PathBuf};
@@ -135,6 +135,76 @@ fn bulletin_reports_an_unknown_trend() {
         "---\nfecha: 2026-01-01\nrunner: manual\npuntuacion: 0.5\ntendencia: regular\n---\n",
     );
     assert!(bulletin.problems.iter().any(|p| p.code == "badTrend"));
+}
+
+/// R7 — a `puntuacion` outside 0.00–1.00 makes the bulletin invalid (§3.4).
+///
+/// The three cases live in one test on purpose: what matters is not that each
+/// verdict is right in isolation but that "absent" lands on the *other* side of
+/// the line from "out of range". Split across three tests, a regression that
+/// collapses them into one branch still leaves two of the three green.
+#[test]
+fn bulletin_reports_a_score_out_of_range_but_not_a_missing_one() {
+    let out_of_range = parse_bulletin(
+        "---\nfecha: 2026-01-01\nrunner: manual\npuntuacion: 1.5\ntendencia: estable\n---\n",
+    );
+    assert!(
+        out_of_range.problems.iter().any(|p| p.code == "badScore"),
+        "1.5 is outside 0.00-1.00 and must be reported"
+    );
+
+    // R7b — a legible bulletin with no score is legitimate, not invalid.
+    let absent =
+        parse_bulletin("---\nfecha: 2026-01-01\nrunner: manual\ntendencia: estable\n---\n");
+    assert_eq!(
+        absent.problems.len(),
+        0,
+        "an absent `puntuacion` must report nothing at all, got {:?}",
+        absent.problems
+    );
+
+    let in_range = parse_bulletin(
+        "---\nfecha: 2026-01-01\nrunner: manual\npuntuacion: 0.75\ntendencia: estable\n---\n",
+    );
+    assert_eq!(
+        in_range.problems.len(),
+        0,
+        "0.75 is valid and must report nothing, got {:?}",
+        in_range.problems
+    );
+}
+
+/// R3 — the listing carries the root it read, even when it read nothing.
+///
+/// The absent-root case is the one that matters: the agent list is empty for a
+/// missing root and for an empty one alike, so without the path the UI cannot
+/// tell "no evals yet" from "looking at the wrong directory".
+#[test]
+fn eval_listing_carries_the_root_it_looked_at_even_when_absent() {
+    let missing = fixtures().join("evals-no-such-root");
+    assert!(
+        !missing.exists(),
+        "this path must not exist for the test to mean anything"
+    );
+
+    let listing = list_agent_eval_listing(&missing);
+    assert_eq!(listing.root, missing.to_string_lossy());
+    assert!(
+        listing.agents.is_empty(),
+        "a missing root lists no agents, got {}",
+        listing.agents.len()
+    );
+
+    // Control: a root that does exist reports the same path and finds agents,
+    // so the assertion above is about the root being absent, not about the
+    // field being hardcoded.
+    let present = fixtures().join("evals");
+    let found = list_agent_eval_listing(&present);
+    assert_eq!(found.root, present.to_string_lossy());
+    assert!(
+        !found.agents.is_empty(),
+        "the fixture root has agents; an empty result would mean this test proves nothing"
+    );
 }
 
 #[test]

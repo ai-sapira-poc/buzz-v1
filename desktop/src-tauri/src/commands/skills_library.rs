@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::skills_library::contract::{
-    list_agent_evals, read_agent_evals, read_capped, split_frontmatter, AgentEvalSummary,
+    list_agent_eval_listing, read_agent_evals, read_capped, split_frontmatter, AgentEvalListing,
     AgentEvals,
 };
 use crate::skills_library::discovery::{
@@ -136,9 +136,9 @@ pub async fn read_agent_eval_contract(
 /// other command here (§7). An empty or missing root comes back as an empty
 /// list, not an error — the normal state before any agent has evals.
 #[tauri::command]
-pub async fn list_agent_eval_summaries() -> Result<Vec<AgentEvalSummary>, String> {
+pub async fn list_agent_eval_summaries() -> Result<AgentEvalListing, String> {
     let roots = roots()?;
-    Ok(list_agent_evals(&roots.evals_dir()))
+    Ok(list_agent_eval_listing(&roots.evals_dir()))
 }
 
 // ── Import ───────────────────────────────────────────────────────────────────

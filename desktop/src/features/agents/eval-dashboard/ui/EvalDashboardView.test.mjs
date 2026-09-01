@@ -59,7 +59,14 @@ before(async () => {
   dom.window.__TAURI_INTERNALS__ = {
     invoke: (command) => {
       if (command === "list_agent_eval_summaries") {
-        return listAgentEvalSummariesHandler();
+        // The command answers `{ root, agents }` (R3 — the root travels with
+        // the listing even when it is empty). Each test's handler describes
+        // only *which agents exist*, which is what it is about, so the payload
+        // shape is applied here once instead of in every fixture. The view
+        // still receives the real object and still has to unwrap `.agents`.
+        return Promise.resolve(listAgentEvalSummariesHandler()).then(
+          (agents) => ({ root: "/Users/test/.buzz/.agents/evals", agents }),
+        );
       }
       return Promise.reject(new Error(`unmocked Tauri command: ${command}`));
     },

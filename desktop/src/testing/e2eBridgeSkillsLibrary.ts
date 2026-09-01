@@ -465,8 +465,15 @@ export function handleReadAgentEvals(agentName: string) {
  * only lists what exists under `evals_dir()`.
  */
 export function handleListAgentEvalSummaries() {
-  return [...mockAgentEvals.entries()].map(([dirName, evals]) => ({
-    ...(evals as object),
-    dirName,
-  }));
+  return {
+    // R3 — the root travels with the listing even when it is empty. The mock
+    // reports a fixed nest path rather than deriving one from the seeded
+    // agents, because the case that matters is precisely the one where there
+    // are no agents to derive it from.
+    root: "/Users/e2e/.buzz/.agents/evals",
+    agents: [...mockAgentEvals.entries()].map(([dirName, evals]) => ({
+      ...(evals as object),
+      dirName,
+    })),
+  };
 }

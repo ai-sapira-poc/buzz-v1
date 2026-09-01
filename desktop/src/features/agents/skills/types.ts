@@ -176,3 +176,17 @@ export type AgentEvalSummary = AgentEvals & {
   /** The folder name as it sits on disk under `evals_dir()` (§3.1). */
   dirName: string;
 };
+
+/**
+ * The whole evals listing: the root that was read, plus one entry per agent.
+ *
+ * Mirrors `AgentEvalListing` in `skills_library::contract`. `root` travels even
+ * when `agents` is empty (R3): a missing root and a root with no agents both
+ * list zero agents, and the path is the only thing that tells them apart —
+ * `AgentEvals.dir` is per agent, so an empty listing carries no `dir` at all.
+ */
+export type AgentEvalListing = {
+  /** The directory that was read, whether or not it exists. */
+  root: string;
+  agents: AgentEvalSummary[];
+};
