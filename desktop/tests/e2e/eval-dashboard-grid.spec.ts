@@ -64,12 +64,26 @@ async function openDashboard(page: Page) {
   return page.getByTestId("eval-dashboard-grid");
 }
 
+// Counts only the resolved track sizes, and that filter is load-bearing twice
+// over. `getComputedStyle` returns the *used* value — a pixel per track — only
+// when the grid has been laid out; with an unrendered ancestor it hands back the
+// declaration instead, and `repeat(3, minmax(0px, 1fr))` splits into three
+// tokens no matter how many columns there really are. So a one-column grid that
+// never rendered would count 3 and pass. Line names are the other half:
+// `[s] 1fr [m] 2fr [e]` computes to `[s] 300px [m] 600px [e]`, five tokens for
+// two tracks. Keeping only the `px` tokens rejects both — the declaration form
+// yields zero, which is neither 1 nor 3.
+//
+// The `toBeVisible()` assertion in each test is the other guard against the
+// first case, and it is structural rather than courtesy: remove it and this
+// helper is the only thing standing between the suite and a green run over a
+// panel that was never painted.
 async function trackCount(page: Page) {
   return page.evaluate(() => {
     const grid = document.querySelector('[data-testid="eval-dashboard-grid"]');
     if (!grid) throw new Error("eval-dashboard-grid not rendered");
     const columns = getComputedStyle(grid).gridTemplateColumns.trim();
-    return columns.split(/\s+/).filter(Boolean).length;
+    return columns.split(/\s+/).filter((token) => token.endsWith("px")).length;
   });
 }
 
