@@ -40,7 +40,8 @@ TOOLS = {
 DEFAULT_TIMEOUT = 900
 
 
-def run(role: str, prompt: str, cwd: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+def run(role: str, prompt: str, cwd: str, timeout: int = DEFAULT_TIMEOUT,
+        job: str | None = None) -> dict:
     """Execute one bounded pi turn for a code-plane role.
 
     Returns the parsed run record. A non-zero exit or unparseable output is
@@ -84,7 +85,7 @@ def run(role: str, prompt: str, cwd: str, timeout: int = DEFAULT_TIMEOUT) -> dic
             span,
             usage.get("input", 0),
             usage.get("output", 0),
-            record.get("model"),
+            record.get("model"), job=job, role=role, harness="pi",
         )
         record["trace_id"] = telemetry.trace_id_of(span)
         return record

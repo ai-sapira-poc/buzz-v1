@@ -29,7 +29,14 @@ from pilot import ROOT, REPO, MODEL, config
 from control_plane.roster import CODE_ROLES, CONTRACTS, PI, instruction
 from control_plane.run_hermes import CONTROL_PLANE_CHANNEL
 
-PI_ACP = shutil.which("pi-acp") or "pi-acp"
+# Buzz integrated its own pi adapter fork (PR #7552), pinned in the desktop
+# preset at `managed_agents/discovery/presets.rs:113`. It replaces the
+# third-party `pi-acp@0.0.x` we were using, and it is the one Buzz knows how to
+# speak to: the harness sends the composed system prompt as `_meta.systemPrompt`
+# on `session/new`, but only when the agent identifies itself as `buzz-pi-acp`
+# (`crates/buzz-acp/src/acp.rs:26`). With the upstream adapter that prompt never
+# arrives — which is what our own instruction-file workaround was papering over.
+PI_ACP = shutil.which("buzz-pi-acp") or "buzz-pi-acp"
 
 
 def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, cwd: str | None = None,
@@ -70,11 +77,14 @@ def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, cwd: str | None = None,
 
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
-    # The role contract goes to pi as an appended system prompt. pi-acp forwards
-    # PI_* nothing of the sort, so it is written where pi itself will read it:
-    # a project-local instruction file in the working directory is the seam pi
-    # already honours.
-    (logs / f"{role}-instruction.md").write_text(instruction(role), encoding="utf-8")
+    # The role contract reaches the agent through the harness's own prompt
+    # composition, which is the seam that actually exists. Writing it to a file
+    # and hoping pi picked it up was a guess I never verified; `buzz-acp` reads
+    # this path itself (`config.rs:292`) and hands the composed prompt to
+    # `buzz-pi-acp` as `_meta.systemPrompt` on session/new.
+    contract_file = logs / f"{role}-instruction.md"
+    contract_file.write_text(instruction(role), encoding="utf-8")
+    env["BUZZ_ACP_SYSTEM_PROMPT_FILE"] = str(contract_file)
 
     log = logs / f"control-plane-{role}.log"
     with log.open("a") as output:

@@ -34,6 +34,23 @@ STALL_SECONDS = 420
 BLOCKED_REPEATS = 3
 
 
+def _expected(project: str) -> dict[str, dict]:
+    """The assignments this project is supposed to contain.
+
+    Without this, a role that never reached the jobs table simply does not
+    appear in the portfolio — and an absent row reads as "nothing to worry
+    about", which is the most expensive kind of silence.
+    """
+    if project != "tower":
+        return {}
+    try:
+        from control_plane.tower_project import ASSIGNMENTS
+
+        return ASSIGNMENTS
+    except Exception:  # noqa: BLE001 - a missing project definition is not fatal
+        return {}
+
+
 def _rows(project: str) -> list[dict]:
     like = f"{project}%"
     with database() as db:

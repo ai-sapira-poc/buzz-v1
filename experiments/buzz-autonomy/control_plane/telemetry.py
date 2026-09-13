@@ -137,12 +137,37 @@ def turn(role: str, harness: str, model: str):
         yield span
 
 
-def record_usage(span, input_tokens: int, output_tokens: int, model: str | None = None) -> None:
-    """Attach token usage under the pinned semantic-convention names."""
+def record_usage(span, input_tokens: int, output_tokens: int, model: str | None = None,
+                 job: str | None = None, role: str | None = None,
+                 harness: str | None = None) -> None:
+    """Attach token usage to the span, and keep a durable copy we can query.
+
+    The span alone was not enough. Traces go to a collector that is optional,
+    sampled and not there at all when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset —
+    so "what did this cost" had no answer on a normal day. Buzz publishes its
+    own per-turn metric (NIP-AM kind 44200) but encrypts it to the owner and
+    exposes no decrypt path from the CLI, so it cannot answer it either.
+
+    This writes the same numbers into the pilot's own event log, which is what
+    the cost equation is computed from. It is a local mirror of a number the
+    harness already reports, not a second measurement.
+    """
     span.set_attribute("gen_ai.usage.input_tokens", int(input_tokens or 0))
     span.set_attribute("gen_ai.usage.output_tokens", int(output_tokens or 0))
     if model:
         span.set_attribute("gen_ai.response.model", model)
+    if not job:
+        return
+    try:
+        from pilot import event
+
+        event(job, role or "unknown", "turn_usage", {
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
+            "model": model, "harness": harness,
+        })
+    except Exception:  # noqa: BLE001 - accounting must never fail the work
+        pass
 
 
 def flush(timeout_ms: int = 5000) -> None:

@@ -174,3 +174,94 @@ class MalformedCallsAreLegible(unittest.TestCase):
         self.assertIn('"action" not in params or "args" not in params', source)
         self.assertIn("Ejemplo:", source, "debe mostrar la forma correcta")
         del captured, _json
+
+
+class PiHarnessUsesTheBuzzFork(unittest.TestCase):
+    def test_the_role_contract_travels_through_the_harness_prompt_seam(self):
+        # Writing the contract to a file and trusting pi to find it was never
+        # verified. `buzz-acp` reads BUZZ_ACP_SYSTEM_PROMPT_FILE itself and
+        # sends the composed prompt as `_meta.systemPrompt` — but only to the
+        # Buzz fork, which identifies itself as `buzz-pi-acp`.
+        source = (Path(__file__).parent / "control_plane/run_pi_agent.py").read_text()
+        self.assertIn("BUZZ_ACP_SYSTEM_PROMPT_FILE", source)
+        self.assertIn('shutil.which("buzz-pi-acp")', source)
+        self.assertNotIn('shutil.which("pi-acp")', source)
+
+
+class PortfolioSeesEverything(unittest.TestCase):
+    def test_a_role_with_no_queue_row_is_named_not_omitted(self):
+        # The pi roles leave no row in the jobs table. Omitted, they read as
+        # "nothing to worry about" — the most expensive kind of silence.
+        import diagnosis
+
+        self.assertIn("tower", diagnosis._expected("tower") and "tower")
+        self.assertTrue(diagnosis._expected("tower"), "las asignaciones deben resolverse")
+        self.assertEqual(diagnosis._expected("otro-proyecto"), {})
+
+    def test_a_repeated_wall_outranks_the_budget_it_burned(self):
+        import diagnosis
+
+        job = {"status": "failed", "started": 0, "created": 0, "events": [
+            {"action": "tool_error", "at": 1,
+             "data": '{"action":"write","message":"bloqueado","repeat":9}'},
+            {"action": "incomplete", "at": 2, "data": '{"reason":"max_iterations"}'},
+        ]}
+        verdict, evidence = diagnosis._obstacle(job, 100)
+        self.assertEqual(verdict, "blocked")
+        self.assertIn("9x", evidence)
+
+
+class CodeRolesWorkInTheRepo(unittest.TestCase):
+    def test_a_pi_attempt_runs_in_the_repository(self):
+        # Started in the pilot home, a code role cannot see desktop/src at all,
+        # so it reports "not found" for files that are right there — a wrong
+        # answer dressed as a finding.
+        source = (Path(__file__).parent / "control_plane/pursue.py").read_text()
+        self.assertIn("run_pi(role, brief, str(REPO)", source)
+        self.assertNotIn("run_pi(role, brief, str(ROOT)", source)
+
+
+class RungsActuallyRun(unittest.TestCase):
+    def test_a_previously_failed_rung_is_requeued_before_running(self):
+        # enqueue is idempotent, so a rung that already failed comes back as the
+        # same failed row, and execute skips anything not queued — returning in
+        # 0s. The pursuit then reports an exhausted ladder having tried nothing,
+        # which is worse than failing: it looks like effort.
+        source = (Path(__file__).parent / "control_plane/pursue.py").read_text()
+        self.assertIn("UPDATE jobs SET status='queued'", source)
+        self.assertIn("status!='done'", source, "no debe reencolar lo ya hecho")
+
+
+class TheDriverSurvivesTheFailuresItExistsFor(unittest.TestCase):
+    def test_a_crashing_attempt_is_classified_not_propagated(self):
+        # The architect's TimeoutExpired propagated out of the pi harness and
+        # killed the pursuit on attempt 1 — a resilience driver defeated by the
+        # exact failure it was written to climb past.
+        source = (Path(__file__).parent / "control_plane/pursue.py").read_text()
+        self.assertIn("attempt_crashed", source)
+        self.assertIn("except Exception as error", source)
+
+    def test_a_crash_reason_still_reaches_the_ladder(self):
+        from control_plane import pursue
+
+        self.assertEqual(
+            pursue.classify({"reason": "TimeoutExpired: Command ... timed out"}),
+            "timeout",
+        )
+
+
+class BriefsMatchTheHarness(unittest.TestCase):
+    def test_a_code_role_is_not_told_it_cannot_read_the_repository(self):
+        # It was told exactly that while being asked to inspect
+        # desktop/src/features/pulse/. It burned its whole window and returned
+        # nothing — a contradiction in the brief costs a full run.
+        from control_plane.tower_project import brief_for
+
+        architect = brief_for("arquitecto")
+        self.assertIn("sí puedes leer", architect)
+        self.assertNotIn("no alcanza el repositorio", architect)
+
+    def test_a_business_role_is_still_told_the_truth_about_its_reach(self):
+        from control_plane.tower_project import brief_for
+
+        self.assertIn("no alcanza el", brief_for("diseno"))

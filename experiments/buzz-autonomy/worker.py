@@ -81,7 +81,7 @@ def run(job):
                     turn_span,
                     usage.get("prompt_tokens") or usage.get("input_tokens") or 0,
                     usage.get("completion_tokens") or usage.get("output_tokens") or 0,
-                    MODEL,
+                    MODEL, job=job, role=role, harness="hermes",
                 )
             telemetry.flush()
         report(job, result)

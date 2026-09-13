@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import control_plane  # noqa: F401  (pins BUZZ_PILOT_HOME before pilot loads)
 
-from pilot import ROOT, database, event
+from pilot import REPO, ROOT, database, event
 from control_plane.roster import CONTRACTS, PI
 from control_plane.tower_project import ASSIGNMENTS, CHANNEL, brief_for
 
@@ -173,7 +173,19 @@ def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> d
     if contract["harness"] == PI:
         from control_plane.pi_harness import run as run_pi
 
-        result = run_pi(role, brief, str(ROOT), timeout=window)
+        # The repository is the working directory, not the pilot home. A code
+        # role started in ROOT cannot see `desktop/src` at all, so it would
+        # "fail to find" files that are right there — a wrong answer that looks
+        # like a finding.
+        try:
+            result = run_pi(role, brief, str(REPO), timeout=window, job=job)
+        except Exception as error:  # noqa: BLE001
+            # A driver whose job is surviving failure must survive this one. The
+            # architect's timeout propagated straight out and killed the pursuit
+            # on attempt 1, so the ladder it exists to climb was never reached.
+            reason = f"{type(error).__name__}: {str(error)[:200]}"
+            event(job, role, "attempt_crashed", {"reason": reason})
+            return {"status": "failed", "reason": reason, "final": ""}
         return {"status": "done" if result.get("final") else "failed", **result}
 
     previous = os.environ.get("BUZZ_TURN_BUDGET")
@@ -183,6 +195,15 @@ def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> d
         import supervisor
 
         enqueue(contract["identity"], brief, job)
+        # `enqueue` is idempotent, so a rung that already ran and failed comes
+        # back as the same failed row — and `execute` skips anything not queued,
+        # returning in 0s without trying. The pursuit then "exhausted" its ladder
+        # having attempted nothing. Put the rung back in the queue explicitly.
+        with database() as db:
+            db.execute(
+                "UPDATE jobs SET status='queued', started=NULL, attempts=0 "
+                "WHERE id=? AND status!='done'", (job,)
+            )
         # `tick` runs whatever is queued under a fixed 180s deadline, which
         # silently overrode the window this rung asked for: attempt 2 was given
         # 900s and was killed at 180. Drive the job we know about, directly.

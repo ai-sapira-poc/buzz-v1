@@ -68,7 +68,8 @@ def dispatch_pi(role: str, dry_run: bool) -> str:
     from control_plane import pi_harness, telemetry
 
     repo = str(Path(__file__).resolve().parents[3])
-    record = pi_harness.run(role, brief_for(role), repo, timeout=1800)
+    record = pi_harness.run(role, brief_for(role), repo, timeout=1800,
+                           job=f"tower-{role}")
     telemetry.flush()
     out = Path.home() / ".local/share/buzz-autonomy-pilot/sapira/artifacts/tower"
     out.mkdir(parents=True, exist_ok=True)

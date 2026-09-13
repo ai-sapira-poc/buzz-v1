@@ -13,8 +13,7 @@ PLAN = "docs/goals/tower-control-arranque.md"
 
 SHARED = """Proyecto: Tower Control, la capa de visibilidad del control plane dentro de Buzz.
 
-Documentos del proyecto, legibles con la herramienta `read` (rutas relativas a tus
-artefactos, no al repositorio — tu `read` no alcanza el repositorio):
+Documentos del proyecto, legibles con la herramienta `read`:
   tower/plan-arranque.md    el plan de arranque: decisiones, pasos y pruebas
   tower/plan-contexto.md    el contexto largo: kinds existentes, estado de OTel
   tower/vision-actividad.md el criterio de presentación (verbo, objeto, resultado)
@@ -142,9 +141,24 @@ ORDER = ["producto", "research", "arquitecto", "estrategia", "innovacion",
          "analista", "diseno", "revisor"]
 
 
+# Where the project documents live differs by harness, and getting this wrong is
+# expensive: the shared frame used to tell every teammate that its `read` could
+# not reach the repository, while the architect's own brief asked it to look at
+# `desktop/src/features/pulse/`. Told it could not do the one thing it was asked
+# to do, it spent its whole 900-second window and returned nothing.
+SCOPE_HERMES = """Las rutas son relativas a tus artefactos; tu `read` no alcanza el
+repositorio. Si necesitas algo del código, pídeselo a un compañero del plano de código."""
+
+SCOPE_PI = """Las rutas de `tower/...` son relativas a tus artefactos. El resto de rutas
+son relativas al repositorio, que sí puedes leer: estás trabajando dentro de él."""
+
+
 def brief_for(role: str) -> str:
     """The full text one teammate receives: shared frame plus its own brief."""
-    return SHARED + "\n\n---\n\n" + ASSIGNMENTS[role]["brief"]
+    from control_plane.roster import CONTRACTS, PI
+
+    scope = SCOPE_PI if CONTRACTS[role]["harness"] == PI else SCOPE_HERMES
+    return SHARED + "\n\n" + scope + "\n\n---\n\n" + ASSIGNMENTS[role]["brief"]
 
 
 def ready(role: str, done: set[str]) -> bool:

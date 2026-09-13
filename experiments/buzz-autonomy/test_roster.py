@@ -14,7 +14,7 @@ from control_plane import roster
 
 class RosterShape(unittest.TestCase):
     def test_every_role_splits_between_exactly_two_harnesses(self):
-        self.assertEqual(len(roster.ROLES), 11)  # 10 del equipo + cronista
+        self.assertEqual(len(roster.ROLES), 12)  # 10 del equipo + cronista + probador
         self.assertEqual(
             set(roster.CODE_ROLES) | set(roster.BUSINESS_ROLES), set(roster.ROLES)
         )
@@ -211,3 +211,41 @@ class GatesAgree(unittest.TestCase):
         for tool in ("save_status_update", "save_comment"):
             with self.subTest(tool=tool):
                 self.assertIn(tool, text, "falta en el allowlist MCP de Linear")
+
+    def test_the_working_protocol_reaches_the_orchestrator(self):
+        # The 90/7/3 gates and the separation of author from reviewer decide
+        # what "done" means. If they live only in a doc, they bind nobody.
+        text = roster.instruction("maestro")
+        for marker in ("90%", "7%", "3%", "400ms", "400 lines"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_gates_are_per_slice_not_per_project(self):
+        # The evidence is blunt: a polish phase scheduled at the end of a
+        # project is a polish phase that gets cancelled. The contract has to say
+        # so, or the 3% is the first thing cut.
+        text = roster.instruction("maestro")
+        self.assertIn("never phases of the project", text)
+
+    def test_the_reviewer_is_never_the_author(self):
+        self.assertIn(
+            "never whoever wrote", roster.CONTRACTS["maestro"]["verification"]
+        )
+
+    def test_the_tester_must_exercise_the_product_not_read_about_it(self):
+        # Reading the source tells you what was built, never what it is like to
+        # use. This role exists precisely to tell those two apart, so its
+        # contract has to forbid the substitution explicitly.
+        contract = roster.CONTRACTS["probador"]
+        self.assertIn("did not exercise", contract["anti"])
+        self.assertIn("by using it", contract["method"])
+
+    def test_the_tester_cannot_write_into_what_it_measures(self):
+        import capabilities
+
+        permissions = capabilities.PERMISSIONS[roster.CONTRACTS["probador"]["identity"]]
+        self.assertIn("buzz", permissions)
+        for command, verbs in capabilities.BUZZ_READS.items():
+            with self.subTest(command=command):
+                for verb in verbs:
+                    self.assertNotIn(verb, {"send", "create", "delete", "set", "update"})

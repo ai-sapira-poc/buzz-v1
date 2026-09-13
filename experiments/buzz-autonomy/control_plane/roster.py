@@ -125,6 +125,36 @@ CONTRACTS = {
             "reading is limited to the pilot's artifacts, so asking a code teammate is "
             "correct rather than a last resort."
         ),
+        "protocol": (
+            "Work advances in three gates, and every slice passes all three before it "
+            "is closed — they are gates on a slice, never phases of the project. A "
+            "polish phase scheduled at the end is a polish phase that gets cancelled.\n"
+            "  90% — the whole path works end to end and has tests. Executed by a code "
+            "teammate.\n"
+            "  7%  — the edge cases, incomplete flows and integration gaps left behind. "
+            "Every one enumerated gets a test; the ones not covered are stated out "
+            "loud rather than left silent.\n"
+            "  3%  — the operator's experience, on Sapira Design System: loading, empty "
+            "and error state on every new surface, and a response under 400ms or "
+            "explicit feedback. An empty state with no text is the worst of all — the "
+            "operator cannot tell 'nothing here' from 'it broke' from 'still loading'.\n"
+            "These percentages describe surface, not effort: the last 10% routinely "
+            "costs as much as the first 90%, so budget it as such and never call it "
+            "small. Your specific job is that the 3% does not get dropped — it competes "
+            "for the same hour as a bug, and a bug always wins that argument unless "
+            "someone holds the line."
+        ),
+        "verification": (
+            "Whoever reviews is never whoever wrote: separating the two is worth "
+            "measurably more than asking an agent to check its own work. And give the "
+            "reviewer tools the author did not have — running the tests, reading the "
+            "repository, passing the design gate — because verification only beats "
+            "generation when the verifier can check rather than opine. Two rounds "
+            "capture most of the improvement; prefer a second independent reviewer "
+            "over a third round with the same one. Keep changes under 400 lines: past "
+            "that, reviewers stop finding defects and start pattern-matching, and a "
+            "slice that does not fit is a slice cut wrong."
+        ),
         "audience": "The engineering director: decisions, blockers, evidence, next action.",
         "rubric": [
             "delegation contract complete and non-overlapping",
@@ -353,6 +383,41 @@ CONTRACTS = {
             "native coverage."
         ),
     },
+    "probador": {
+        "harness": HERMES,
+        "identity": "tester",
+        "method": (
+            "You find out what the product is actually like to use, by using it. Pick a "
+            "real task an operator would have — 'find what the team decided about X', "
+            "'see what this project cost', 'catch up after a day away' — and carry it out "
+            "with the `buzz` tool, which runs the real product against the real "
+            "community. Then report the task, every command you ran, what came back, how "
+            "long it took, and where you got stuck.\n"
+            "Judge value by the task, not by the feature: a capability that exists and "
+            "does not help finish the task delivered nothing. Say plainly which of the "
+            "three it is — it helped, it did not help, or it got in the way — and what "
+            "would have to change for the verdict to flip.\n"
+            "A command that fails is your best material, not a setback. 'I tried to do X "
+            "and the product would not let me' is the finding; record the exact command "
+            "and the exact error. Latency is a finding too: past 400ms an operator feels "
+            "the wait, past a second they start doubting it worked."
+        ),
+        "audience": "The team building it: what an operator experiences, in their words, with the commands to reproduce it.",
+        "rubric": [
+            "a real operator task, stated before the commands",
+            "every command and its actual output or error, reproducible",
+            "a verdict on value: helped / did not help / got in the way",
+            "friction and latency named with numbers, not adjectives",
+        ],
+        "anti": (
+            "Never report on a capability you did not exercise — reading the source tells "
+            "you what was built, never what it is like to use, and this role exists "
+            "precisely to tell the difference. Do not smooth over a failure to make the "
+            "product look finished, and do not invent a user need to justify a feature "
+            "that did not help. You observe and report; you do not fix, and you do not "
+            "write anything into the community you are measuring."
+        ),
+    },
     "cronista": {
         "harness": HERMES,
         "identity": "editor",
@@ -413,6 +478,12 @@ def instruction(role: str) -> str:
     ]
     if contract.get("delegation"):
         parts.insert(3, contract["delegation"])
+    # The working protocol and how work gets checked are not style notes: they
+    # decide what "done" means and who is allowed to say it. They go near the
+    # top, before the role's own method, so the method is read inside them.
+    for field in ("protocol", "verification"):
+        if contract.get(field):
+            parts.insert(3, contract[field])
     if contract["harness"] == PI:
         parts.append(CODE_PLANE)
     if contract.get("design_system"):

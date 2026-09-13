@@ -18,7 +18,7 @@ PERMISSIONS = {
     "designer": {"read", "write", "recall"},
     "coder": {"read", "write", "recall"},
     "reviewer": {"read", "write", "recall", "remember"},
-    "tester": {"read", "write", "browser", "recall"},
+    "tester": {"read", "write", "browser", "recall", "remember", "buzz"},
     "analyst": {"read", "write", "recall", "linear", "railway"},
     "strategy": {"read", "write", "recall", "remember"},
     "innovation": {"read", "write", "recall", "remember"},
@@ -60,7 +60,140 @@ def railway_logs():
     return {"service": c["service"], "logs": r.stdout[:18000]}
 
 
+# Reading the product as a user does. Only read verbs: the point of this role is
+# to find out what the product is like to use, and a tester that can post,
+# create or delete is a tester that changes what it is measuring.
+BUZZ_READS = {
+    "channels": {"list", "get", "members"},
+    "messages": {"get", "search", "thread"},
+    "projects": {"list", "get"},
+    "issues": {"list", "get"},
+    "notes": {"ls", "get"},
+    "feed": {"get", ""},
+    "users": {"get", "presence"},
+    "workflows": {"list", "get", "runs"},
+    "canvas": {"get"},
+    "reactions": {"list"},
+    "mem": {"ls", "get"},
+}
+
+
+def use_buzz(role, job, args):
+    """Run a read-only Buzz command, as a person using the product would.
+
+    This exists because the only honest way to know whether a feature delivers
+    value is to use it. A report written from the source code describes what was
+    built; this describes what it is like to operate — which is the thing the
+    operator actually experiences and the thing nobody was measuring.
+
+    Deliberately read-only. A tester that can post messages or create projects
+    is changing the system it is measuring, and its findings stop being about
+    the product and start being about its own noise.
+    """
+    command = args.get("command")
+    subcommand = args.get("subcommand", "")
+    if command not in BUZZ_READS:
+        raise PermissionError(
+            f"'{command}' no está disponible. Lecturas permitidas: "
+            + ", ".join(sorted(BUZZ_READS))
+        )
+    if subcommand not in BUZZ_READS[command]:
+        raise PermissionError(
+            f"'{command} {subcommand}' no es una lectura. Permitidas para "
+            f"{command}: {', '.join(sorted(s for s in BUZZ_READS[command] if s))}"
+        )
+    extra = args.get("args") or []
+    if not isinstance(extra, list) or any(not isinstance(a, str) for a in extra):
+        raise ValueError("args debe ser una lista de cadenas")
+    if len(extra) > 12:
+        raise ValueError("Demasiados argumentos para una lectura")
+
+    from pilot import buzz as run_buzz
+
+    argv = [command] + ([subcommand] if subcommand else []) + extra
+    started = time.monotonic()
+    try:
+        result = run_buzz(role, argv)
+        failure = None
+    except Exception as error:  # noqa: BLE001 - a failed read IS a finding here
+        # For this role a command that fails is data, not an accident: "I tried
+        # to do X and the product would not let me" is exactly the report we
+        # want. Swallowing it would hide the most valuable observations.
+        result, failure = None, str(error)[:400]
+    elapsed = round((time.monotonic() - started) * 1000)
+
+    event(job, role, "buzz_read", {"argv": argv, "ms": elapsed,
+                                   "failed": failure is not None})
+    payload = {"command": " ".join(argv), "ms": elapsed}
+    if failure is None:
+        text = json.dumps(result, ensure_ascii=False)
+        payload["result"] = json.loads(text) if len(text) <= 24000 else text[:24000]
+        payload["truncated"] = len(text) > 24000
+    else:
+        payload["failed"] = True
+        payload["error"] = failure
+    return payload
+
+
+# How many operations one batch may carry. Enough that reading a handful of
+# files and writing the result is a single turn, small enough that a bad batch
+# cannot spend the whole assignment before anyone sees it.
+BATCH_LIMIT = 12
+# Never inside a batch: `batch` would nest into a loop with no turn boundary to
+# stop it, and `delegate` would spawn work that no one watched being created.
+BATCH_FORBIDDEN = {"batch", "delegate"}
+
+
+def run_batch(role, job, args):
+    """Run several operations in one turn instead of one per turn.
+
+    Borrowed from Uber's "code-mode": the expensive part of a tool call is not
+    the work, it is that every intermediate result re-enters the model's context
+    and is billed again on the next turn. Uber measured 55-71% fewer tokens on
+    simple queries and over 90% on bulk work by moving the loop into a
+    subprocess and returning only the summary.
+
+    Here the loop moves into this function. The agent asks for five reads and a
+    write, and pays for one turn's context instead of six.
+
+    Every step still goes through `operate`, so permissions, pause and
+    cancellation apply exactly as they would one at a time — this changes how
+    many turns the work costs, never what the work is allowed to do.
+    """
+    steps = args.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise ValueError(
+            'batch necesita {"steps": [{"action": ..., "args": {...}}, ...]}'
+        )
+    if len(steps) > BATCH_LIMIT:
+        raise ValueError(f"Un batch admite hasta {BATCH_LIMIT} pasos; pediste {len(steps)}")
+
+    results = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict) or "action" not in step:
+            raise ValueError(f"Paso {index} mal formado: necesita 'action' y 'args'")
+        step_action = step["action"]
+        if step_action in BATCH_FORBIDDEN:
+            raise PermissionError(f"'{step_action}' no puede ir dentro de un batch")
+        try:
+            results.append({"step": index, "action": step_action, "ok": True,
+                            "result": operate(role, job, step_action, step.get("args") or {})})
+        except Exception as error:  # noqa: BLE001 - a failed step must not lose the rest
+            # Stop here, but hand back everything that already succeeded. The
+            # alternative — throwing the whole batch away — makes a batch riskier
+            # than the sequential calls it replaces, which would defeat it.
+            results.append({"step": index, "action": step_action, "ok": False,
+                            "error": type(error).__name__, "message": str(error)[:300]})
+            break
+    event(job, role, "batch", {"steps": len(steps), "ran": len(results),
+                               "failed": sum(1 for r in results if not r["ok"])})
+    return {"steps": len(steps), "results": results}
+
+
 def operate(role, job, action, args):
+    if action == "batch":
+        # Authorised per step rather than as a whole: a batch grants nothing.
+        return run_batch(role, job, args)
     if action not in PERMISSIONS[role] and action != "context":
         event(job, role, "denied", {"action": action})
         raise PermissionError(f"{action} is unavailable to {role}")
@@ -68,7 +201,9 @@ def operate(role, job, action, args):
         state = db.execute("SELECT status FROM jobs WHERE id=?", (job,)).fetchone()
     if (ROOT / "PAUSED").exists() or (state and state["status"] == "cancelled"):
         raise RuntimeError("Pilot operation stopped by pause/cancellation")
-    if action == "context":
+    if action == "buzz":
+        result = use_buzz(role, job, args)
+    elif action == "context":
         from context import access
         result = access(job, args)
     elif action == "read":
@@ -240,7 +375,7 @@ def register(role, job):
     from toolsets import TOOLSETS
     name = "pilot_" + role
     PERMISSIONS[role].add("context")
-    schema = {"name": "pilot", "description": "Execute a scoped operation. Available actions: " + ", ".join(sorted(PERMISSIONS[role])) + ". read: path, optional offset/limit (characters, max 24000); follow next_offset until truncated=false before claiming full inspection. write: path,content OR path,old_text,new_text (exactly one match; prefer small edits to rewriting large files). remember: id,kind (belief|question|idea|experience|skill|report),text,evidence(array),status(candidate|supported|rejected|retired). Skills cannot self-promote to supported. Maestro/reviewer can restore an existing entry with id,kind,restore_revision,evidence instead of text. recall: optional id,history=true. delegate: id,role,prompt, optional depends_on (list of previously enqueued job IDs). Maximum 14 children; no recursive maestro. fetch: url. browser: path,steps(maximum 24; each call starts fresh; array of {action:click|fill|text|inspect|select|press,selector,value?}). results/linear/railway: no args.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": sorted(PERMISSIONS[role])}, "args": {"type": "object"}}, "required": ["action", "args"]}}
+    schema = {"name": "pilot", "description": "Execute a scoped operation. Available actions: " + ", ".join(sorted(PERMISSIONS[role])) + ", batch. batch: steps (array of {action,args}, max 12) — runs several operations in ONE turn instead of one per turn. Prefer it whenever the next operations do not depend on reading the previous result: three reads and a write cost one turn batched, four separately. Each step is permission-checked exactly as if called alone; batch and delegate cannot be nested inside it. A failing step stops the batch and returns everything already done." + ". read: path, optional offset/limit (characters, max 24000); follow next_offset until truncated=false before claiming full inspection. write: path,content OR path,old_text,new_text (exactly one match; prefer small edits to rewriting large files). remember: id,kind (belief|question|idea|experience|skill|report),text,evidence(array),status(candidate|supported|rejected|retired). Skills cannot self-promote to supported. Maestro/reviewer can restore an existing entry with id,kind,restore_revision,evidence instead of text. recall: optional id,history=true. delegate: id,role,prompt, optional depends_on (list of previously enqueued job IDs). Maximum 14 children; no recursive maestro. fetch: url. browser: path,steps(maximum 24; each call starts fresh; array of {action:click|fill|text|inspect|select|press,selector,value?}). buzz: command,subcommand, optional args (array of strings) — run a READ-ONLY Buzz command and see what the product actually does: channels/messages/projects/issues/notes/feed/users/workflows/canvas/reactions/mem. A command that fails is a finding, not an accident: it is reported to you, not hidden. results/linear/railway: no args.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": sorted(PERMISSIONS[role] | {"batch"})}, "args": {"type": "object"}}, "required": ["action", "args"]}}
     def handler(params, **kwargs):
         from inbound import ACTIVE_JOB
         current_job = ACTIVE_JOB.get() or job
