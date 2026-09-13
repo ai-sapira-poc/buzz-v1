@@ -116,8 +116,8 @@ def main() -> int:
             continue
         print(f"  {role:12} arrancado (pid {start(role, args.channel)})")
         time.sleep(1)
-    print("\nEl maestro responde a cualquier mensaje del canal; al resto hay que"
-          "\nmencionarlos por su nombre. Estado: serve.py --status")
+    print("\nA cada agente hay que mencionarlo por su nombre, incluido el maestro"
+          "\n(@Maestro). Estado: serve.py --status")
     return 0
 
 

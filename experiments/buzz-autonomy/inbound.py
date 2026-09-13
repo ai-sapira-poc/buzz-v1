@@ -11,6 +11,43 @@ from pilot import buzz, config, database, event
 ACTIVE_JOB = ContextVar("pilot_active_job", default=None)
 
 
+def served_channels(c) -> list[str]:
+    """The channels this harness was actually launched on.
+
+    `config()["channel"]` is the community's default channel, not necessarily
+    the one the agent is serving. When the fleet was started on a project
+    channel, every live mention died here: the thread lookup below asked the
+    relay for the event *in the default channel*, the relay correctly answered
+    "does not belong to channel …", and the turn ended in two seconds having
+    published nothing. The agent looked broken; the configuration was.
+
+    So the channel the harness subscribed to decides, and the default is only a
+    fallback for callers that never set one.
+    """
+    listed = [part.strip() for part in
+              os.environ.get("BUZZ_ACP_CHANNELS", "").split(",") if part.strip()]
+    return listed or [c["channel"]]
+
+
+def locate(role, event_id, channels):
+    """Find the event in one of the channels we serve, or say we could not.
+
+    Returned together with its channel, because the `h`-tag check afterwards has
+    to assert membership of *that* channel — checking it against a different one
+    is how this failed in the first place.
+    """
+    for channel in channels:
+        try:
+            rows = buzz(role, ["messages", "thread", "--channel", channel,
+                               "--event", event_id])
+        except RuntimeError:
+            continue  # not in this channel; try the next one we serve
+        matches = [row for row in rows if row["id"] == event_id]
+        if len(matches) == 1:
+            return matches[0], channel
+    raise PermissionError("Request not found in the scoped relay thread")
+
+
 def claim(role, prompt):
     """Claim explicit, authorized mentions once; return only fresh request content."""
     if not isinstance(prompt, str):
@@ -35,15 +72,12 @@ def claim(role, prompt):
         from control_plane.roster import CONTRACTS
         permitted |= {c["identities"][r["identity"]]["pubkey"] for r in CONTRACTS.values()}
     own = c["identities"][role]["pubkey"]
+    channels = served_channels(c)
     verified = []
     for event_id in ids:
-        rows = buzz(role, ["messages", "thread", "--channel", c["channel"], "--event", event_id])
-        matches = [row for row in rows if row["id"] == event_id]
-        if len(matches) != 1:
-            raise PermissionError("Request not found in the scoped relay thread")
-        row = matches[0]
+        row, channel = locate(role, event_id, channels)
         tags = row["tags"]
-        if ["h", c["channel"]] not in [t[:2] for t in tags] or row["pubkey"] not in permitted:
+        if ["h", channel] not in [t[:2] for t in tags] or row["pubkey"] not in permitted:
             raise PermissionError("Request origin is not an authorized pilot dispatcher")
         # Requiring a p-tag means requiring an explicit mention. That is right
         # for a specialist and wrong for the agent serving a channel in `all`

@@ -157,16 +157,17 @@ class GatesAgree(unittest.TestCase):
         ).read_text()
         self.assertIn('if env["BUZZ_ACP_SUBSCRIBE"] == "all":', source)
         self.assertIn('env["BUZZ_CLAIM_UNMENTIONED"] = "1"', source)
-        # The maestro is the role that serves the channel, so it is the one the
-        # pairing has to hold for.
-        self.assertEqual(run_hermes.subscribe_mode("maestro"), "all")
+        # `all` is no longer the default for any role — measured against this
+        # relay it delivered zero events — but it is still reachable through
+        # BUZZ_ACP_SUBSCRIBE, so the pairing must survive for whoever restores
+        # it. The two gates disagreeing is what made a dispatched turn vanish.
+        self.assertIn('os.environ.get(\n            "BUZZ_ACP_SUBSCRIBE", subscribe_mode(role)\n        )', source)
+        self.assertEqual(run_hermes.subscribe_mode("maestro"), "mentions")
 
-    def test_specialists_still_require_a_mention(self):
+    def test_every_role_waits_to_be_named(self):
         from control_plane import run_hermes
 
         for role in roster.BUSINESS_ROLES:
-            if role == "maestro":
-                continue
             with self.subTest(role=role):
                 self.assertEqual(run_hermes.subscribe_mode(role), "mentions")
 

@@ -32,19 +32,29 @@ CONTROL_PLANE_CHANNEL = "0af36b11-a89b-4071-8388-6a985ed2aa7d"
 
 
 def subscribe_mode(role: str) -> str:
-    """The maestro answers anything in its channel; specialists wait to be named.
+    """Every role waits to be named, including the maestro.
 
-    `mentions` is the harness default and is right for a specialist: seven agents
-    all waking on every message would be seven turns billed for one question. It
-    is wrong for the maestro, which is the operator's interlocutor — having to
-    tag your own chief of staff in a channel that exists for him is friction with
-    no purpose.
+    The maestro ran with `subscribe=all` so the operator would not have to tag
+    his own chief of staff. Measured against this relay, that mode delivered
+    **nothing**: with `all`, six minutes and a confirmed mention produced zero
+    `admitted event` lines in the harness log; restarted with `mentions`, the
+    same mention was admitted in under a second. Admission happens inside
+    buzz-acp, before any gate of ours, so this is the harness or the relay, not
+    our claim logic.
+
+    A convenience that silently removes the agent from the conversation is not a
+    convenience. Tagging `@Maestro` is a small cost; being ignored is not.
+    Restore `all` only with a log line proving an event arrived under it.
+
+    `mentions` is also the right default for a specialist on its own merits:
+    seven agents waking on every message would be seven turns billed for one
+    question.
 
     Reports cannot cause a loop: `inbound.claim` skips any message whose content
     starts with a `[job-id]` prefix, which is exactly how every agent report is
     published.
     """
-    return "all" if role == "maestro" else "mentions"
+    return "mentions"
 
 
 def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, duration: int = 900) -> int:
@@ -82,6 +92,12 @@ def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, duration: int = 900) ->
         "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "queue",
         "BUZZ_ACP_SESSION_POLICY": "thread",
         "BUZZ_ACP_CHANNELS": channel,
+        # An answer belongs in the channel where the question was asked. Without
+        # this, `reporting.target_channel` falls back to the community default
+        # and a reply to a project-channel mention lands somewhere nobody is
+        # looking — the same wrong-channel defect as the claim gate, on the way
+        # out instead of the way in. One launch, one channel, both directions.
+        "BUZZ_PUBLISH_CHANNEL": channel,
         "BUZZ_ACP_NO_MEMORY": "true",
         "BUZZ_ACP_NO_BASE_PROMPT": "true",
         "BUZZ_ACP_RESPOND_TO": "allowlist",
