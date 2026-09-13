@@ -112,6 +112,24 @@ def use_buzz(role, job, args):
 
     argv = [command] + ([subcommand] if subcommand else []) + extra
     started = time.monotonic()
+
+    # `--help` prints text, not JSON, so the normal path tried to parse it and
+    # failed with "Expecting value: line 1 column 1". The tester's own run found
+    # this: 14 of its 35 reads failed, most of them guessing at flag names it had
+    # no way to look up. Blinding the role we built to find friction is the
+    # friction. Upstream now renders an agent-friendly command tree in `--help`
+    # (PR #7584); this is what lets our agents reach it.
+    if "--help" in extra or "-h" in extra:
+        from pilot import BUZZ, credentials_for
+
+        process = subprocess.run(
+            [str(BUZZ), *argv], capture_output=True, text=True, timeout=30,
+            env=credentials_for(role),
+        )
+        elapsed = round((time.monotonic() - started) * 1000)
+        event(job, role, "buzz_read", {"argv": argv, "ms": elapsed, "failed": False})
+        return {"command": " ".join(argv), "ms": elapsed,
+                "help": (process.stdout or process.stderr)[:8000]}
     try:
         result = run_buzz(role, argv)
         failure = None
@@ -325,7 +343,19 @@ def operate(role, job, action, args):
                   "truncated": len(full_text) > 28000 or len(raw) == 600000,
                   "access_scope": "excerpt" if len(full_text) > 28000 else "retrieved page"}
     elif action == "browser":
-        path = safe_path(args["path"])
+        # Either a local artifact under the pilot's own directory, or the app
+        # running on this machine. Anything else is refused here rather than in
+        # the driver, so the boundary is visible where the permission lives.
+        target = args.get("url") or args.get("path")
+        if isinstance(target, str) and target.startswith(("http://localhost", "http://127.0.0.1")):
+            path = target
+        elif "url" in args:
+            raise PermissionError(
+                "El navegador solo alcanza este ordenador: usa http://localhost:<puerto>. "
+                "No es una ventana a internet."
+            )
+        else:
+            path = safe_path(args["path"])
         steps = args.get("steps", [])
         if not isinstance(steps, list) or len(steps) > 24:
             raise ValueError("Browser accepts at most 24 steps; split independent scenarios into separate calls")

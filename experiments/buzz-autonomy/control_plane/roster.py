@@ -449,6 +449,25 @@ CONTRACTS = {
     },
 }
 
+# Roles that hand over something a user will touch, and are therefore judged by
+# the three gates rather than only by their own rubric.
+DELIVERS = {"coder", "diseno", "revisor", "arquitecto", "producto"}
+
+GATES = (
+    "Work closes in three gates, per slice — never as three phases of the project, "
+    "because a polish stage scheduled at the end is a polish stage that gets cancelled.\n"
+    "  90% — the path works end to end and has tests.\n"
+    "  7%  — the edge cases, incomplete flows and integration gaps. Each one enumerated "
+    "gets a test; the ones you did not cover you say out loud.\n"
+    "  3%  — the operator's experience on Sapira Design System: loading, empty and error "
+    "state on every new surface, and under 400ms or explicit feedback. An empty state "
+    "with no text is the worst of all — the operator cannot tell 'nothing here' from 'it "
+    "broke' from 'still loading'.\n"
+    "These are surface, not effort: the last 10% routinely costs as much as the first "
+    "90%. Do not call it small, and do not hand over a slice with the third gate unmet "
+    "without saying so."
+)
+
 ROLES = tuple(CONTRACTS)
 CODE_ROLES = tuple(r for r, c in CONTRACTS.items() if c["harness"] == PI)
 BUSINESS_ROLES = tuple(r for r, c in CONTRACTS.items() if c["harness"] == HERMES)
@@ -484,6 +503,11 @@ def instruction(role: str) -> str:
     for field in ("protocol", "verification"):
         if contract.get(field):
             parts.insert(3, contract[field])
+    # The gates decide what "done" means for whoever delivers, so the delivering
+    # roles have to know them too. Keeping them only in the orchestrator's head
+    # judges people against a standard they were never told.
+    if role in DELIVERS and not contract.get("protocol"):
+        parts.insert(3, GATES)
     if contract["harness"] == PI:
         parts.append(CODE_PLANE)
     if contract.get("design_system"):

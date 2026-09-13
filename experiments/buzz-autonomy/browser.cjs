@@ -1,4 +1,11 @@
-// Real Chromium interaction, restricted to local pilot artifacts with networking denied.
+// Real Chromium interaction.
+//
+// Two modes, because the tester needs both. Given a file, it renders a local
+// artifact with networking denied — the original use, for checking a design
+// deliverable in isolation. Given a `http://localhost:...` URL, it drives the
+// real app running on this machine, with requests to any other host still
+// aborted: the point is to exercise our product, not to give an agent a browser
+// onto the internet.
 const {chromium} = require('../../desktop/node_modules/@playwright/test');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -10,9 +17,24 @@ const {createHash, randomUUID} = require('node:crypto');
   const browser = await chromium.launch({headless: true});
   try {
     const page = await browser.newPage();
-    await page.route('**/*', route => route.abort());
-    const source = fs.readFileSync(file, 'utf8');
-    await page.setContent(source);
+    const live = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(file);
+    await page.route('**/*', route => {
+      const url = route.request().url();
+      const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(url)
+        || url.startsWith('data:') || url.startsWith('blob:');
+      return live && local ? route.continue() : route.abort();
+    });
+    let source = '';
+    if (live) {
+      await page.goto(file, {waitUntil: 'domcontentloaded', timeout: 15000});
+      // The evidence hash covers whatever was actually rendered. For a live
+      // page that is the served DOM, not a file on disk — hashing the URL
+      // would attest to nothing.
+      source = await page.content();
+    } else {
+      source = fs.readFileSync(file, 'utf8');
+      await page.setContent(source);
+    }
     const results = [];
     for (const step of steps) {
       const locator = page.locator(step.selector);

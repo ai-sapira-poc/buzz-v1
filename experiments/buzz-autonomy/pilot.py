@@ -92,13 +92,24 @@ def event(job: str, role: str, action: str, data: object) -> None:
                    (job, role, action, json.dumps(data, ensure_ascii=False), time.time()))
 
 
-def buzz(role: str, args: list[str]) -> dict | list:
+def credentials_for(role: str) -> dict:
+    """The environment a Buzz command runs under, for one identity.
+
+    Split out so callers that need raw output (`--help` prints text, not JSON)
+    can run the CLI themselves without rebuilding the auth chain by hand and
+    quietly getting it wrong.
+    """
     c = config()
     identity = c["identities"][role]
     env = {**os.environ, "BUZZ_RELAY_URL": c["relay"], "BUZZ_PRIVATE_KEY": identity["secret"]}
     env.pop("BUZZ_AUTH_TAG", None)
     if identity.get("auth_tag"):
         env["BUZZ_AUTH_TAG"] = identity["auth_tag"]
+    return env
+
+
+def buzz(role: str, args: list[str]) -> dict | list:
+    env = credentials_for(role)
     result = subprocess.run(["rtk", "proxy", str(BUZZ), *args], env=env,
                             text=True, capture_output=True, timeout=35)
     if result.returncode:

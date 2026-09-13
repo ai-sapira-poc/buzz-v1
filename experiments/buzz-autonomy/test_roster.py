@@ -249,3 +249,18 @@ class GatesAgree(unittest.TestCase):
             with self.subTest(command=command):
                 for verb in verbs:
                     self.assertNotIn(verb, {"send", "create", "delete", "set", "update"})
+
+    def test_the_tester_can_look_up_how_to_call_things(self):
+        # Its first real run failed 14 of 35 reads, most of them guessing flag
+        # names it had no way to look up: `--help` prints text, and the JSON path
+        # parsed it into "Expecting value: line 1 column 1". Blinding the role
+        # built to find friction was itself the friction.
+        source = (pathlib.Path(__file__).parent / "capabilities.py").read_text()
+        self.assertIn('"--help" in extra', source)
+        self.assertIn("credentials_for", source)
+
+    def test_credentials_are_built_in_one_place(self):
+        # A caller that needs raw output must not rebuild the auth chain by hand
+        # and quietly get it wrong.
+        source = (pathlib.Path(__file__).parent / "pilot.py").read_text()
+        self.assertEqual(source.count("BUZZ_PRIVATE_KEY\": identity"), 1)
