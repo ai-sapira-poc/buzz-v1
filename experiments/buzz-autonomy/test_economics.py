@@ -190,6 +190,37 @@ class CodeMode(unittest.TestCase):
         self.assertFalse(out["results"][1]["ok"])
         self.assertEqual(len(out["results"]), 2, "debe parar, no seguir a ciegas")
 
+    def test_a_failed_step_is_named_in_the_event_log(self):
+        # A count alone ("failed: 1") makes batch the one operation whose errors
+        # are invisible: six identical records, no way to tell what broke
+        # without re-running the agent.
+        out = self.capabilities.operate("reviewer", "job", "batch", {"steps": [
+            {"action": "read", "args": {"path": "no-existe.txt"}},
+        ]})
+        self.assertFalse(out["results"][0]["ok"])
+        with pilot.database() as db:
+            row = db.execute(
+                "SELECT data FROM events WHERE job='job' AND action='batch'"
+            ).fetchone()
+        import json as _json
+        record = _json.loads(row[0])
+        self.assertEqual(record["failed_action"], "read")
+        self.assertEqual(record["failed_step"], 0)
+        self.assertTrue(record["error"])
+        self.assertTrue(record["message"])
+
+    def test_a_clean_batch_records_no_failure_fields(self):
+        (pilot.ROOT / "artifacts/a.txt").write_text("primero")
+        self.capabilities.operate("reviewer", "limpio", "batch", {"steps": [
+            {"action": "read", "args": {"path": "a.txt"}},
+        ]})
+        with pilot.database() as db:
+            row = db.execute(
+                "SELECT data FROM events WHERE job='limpio' AND action='batch'"
+            ).fetchone()
+        import json as _json
+        self.assertNotIn("error", _json.loads(row[0]))
+
     def test_the_batch_is_bounded(self):
         with self.assertRaises(ValueError):
             self.capabilities.operate("reviewer", "job", "batch", {"steps": [

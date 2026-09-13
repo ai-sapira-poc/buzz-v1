@@ -203,8 +203,20 @@ def run_batch(role, job, args):
             results.append({"step": index, "action": step_action, "ok": False,
                             "error": type(error).__name__, "message": str(error)[:300]})
             break
-    event(job, role, "batch", {"steps": len(steps), "ran": len(results),
-                               "failed": sum(1 for r in results if not r["ok"])})
+    # Name the failure in the record. Logging only a count ("failed: 1") makes a
+    # batch the one operation whose errors are invisible to the operator: six
+    # consecutive failures looked identical in the event log, and diagnosing them
+    # meant re-running the agent. The step that broke, and why, belongs here —
+    # the agent already sees it, and the log is what everyone else has.
+    broken = next((r for r in results if not r["ok"]), None)
+    record = {"steps": len(steps), "ran": len(results),
+              "failed": sum(1 for r in results if not r["ok"])}
+    if broken:
+        record["failed_step"] = broken["step"]
+        record["failed_action"] = broken["action"]
+        record["error"] = broken["error"]
+        record["message"] = broken["message"]
+    event(job, role, "batch", record)
     return {"steps": len(steps), "results": results}
 
 
