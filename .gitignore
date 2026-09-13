@@ -72,3 +72,6 @@ identity.key
 
 # Helm dependency tarballs — regenerable from Chart.lock via `helm dependency build`
 deploy/charts/*/charts/*.tgz
+
+# Serena tool state (local, not part of the project)
+.serena/
