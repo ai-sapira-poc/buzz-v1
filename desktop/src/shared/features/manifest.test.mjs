@@ -9,21 +9,6 @@ const manifest = JSON.parse(
   ),
 );
 
-test("thread-scoped ACP sessions is a default-off desktop experiment", () => {
-  const feature = manifest.features.find(
-    ({ id }) => id === "threadScopedAcpSessions",
-  );
-
-  assert.deepEqual(feature, {
-    id: "threadScopedAcpSessions",
-    name: "Thread Scoped ACP Sessions",
-    description:
-      "Give each channel thread isolated agent context. Applies when managed agents next start; DMs stay conversation-scoped.",
-    platforms: ["desktop"],
-  });
-  assert.equal(feature.defaultEnabled, undefined);
-});
-
 test("surface-only experiments are on by default in this fork", () => {
   // This fork ships the preview surfaces enabled: Projects, Pulse, Workflows
   // and Forum are read-and-navigate UI, so defaulting them on costs nothing but
@@ -37,13 +22,12 @@ test("surface-only experiments are on by default in this fork", () => {
 });
 
 test("experiments that reach the Tauri backend stay default-off", () => {
-  // These two are not just a tab: their UI toggle also calls
-  // setThreadScopedAcpSessions / setAgentManagedProfiles so the backend learns
-  // the new value. `defaultEnabled` fires no such call, so defaulting them on
+  // This is not just a tab: its UI toggle also calls
+  // setAgentManagedProfiles so the backend learns the new value. `defaultEnabled` fires no such call, so defaulting them on
   // would render the switch as enabled while the backend was never told —
-  // manifest and runtime silently disagreeing. They must be turned on through
+  // manifest and runtime silently disagreeing. It must be turned on through
   // the Experimental settings panel, never here.
-  for (const id of ["threadScopedAcpSessions", "agentManagedProfiles"]) {
+  for (const id of ["agentManagedProfiles"]) {
     const feature = manifest.features.find((entry) => entry.id === id);
     assert.ok(feature, `${id} missing from the manifest`);
     assert.equal(
