@@ -1,0 +1,279 @@
+"""Enforced pilot capabilities. No arbitrary shell or connector mutation tool."""
+import asyncio
+import hashlib
+from html.parser import HTMLParser
+import json
+from pathlib import Path
+import subprocess
+import time
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
+from pilot import ROOT, REPO, config, database, enqueue, event, safe_path
+
+PERMISSIONS = {
+    "maestro": {"read", "write", "remember", "recall", "delegate", "results"},
+    "research": {"read", "write", "remember", "recall", "fetch"},
+    "product": {"read", "write", "remember", "recall"},
+    "designer": {"read", "write", "recall"},
+    "coder": {"read", "write", "recall"},
+    "reviewer": {"read", "write", "recall", "remember"},
+    "tester": {"read", "write", "browser", "recall"},
+    "analyst": {"read", "write", "recall", "linear", "railway"},
+    "strategy": {"read", "write", "recall", "remember"},
+    "innovation": {"read", "write", "recall", "remember"},
+    "ux": {"read", "write", "recall"},
+    "architect": {"read", "write", "recall"},
+    "operations": {"read", "write", "recall", "railway"},
+    "editor": {"read", "write", "recall", "linear"},
+}
+PUBLIC_HOSTS = {"arxiv.org", "www.anthropic.com", "research.google", "deepmind.google"}
+
+
+async def linear_project():
+    """Use only the pilot's isolated OAuth credentials."""
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+    token_path = ROOT / "connectors/linear/mcp-tokens/linear.json"
+    if not token_path.exists():
+        raise RuntimeError("Isolated Linear login required; main Hermes credentials are not used")
+    token = json.loads(token_path.read_text())
+    async with httpx.AsyncClient(headers={"Authorization": "Bearer " + token["access_token"]}, timeout=45) as client:
+        async with streamable_http_client("https://mcp.linear.app/mcp", http_client=client) as (reader, writer, _):
+            async with ClientSession(reader, writer) as session:
+                await session.initialize()
+                result = await session.call_tool("get_project", {"query": config()["linear"]["id"]})
+                if result.isError:
+                    raise RuntimeError("Linear read rejected")
+                return result.model_dump(mode="json")
+
+
+def railway_logs():
+    c = config()["railway"]
+    args = ["rtk", "proxy", str(Path.home() / ".railway/bin/railway"), "logs",
+            "--project", c["project"], "--environment", c["environment"],
+            "--service", c["service"], "--lines", "12", "--json"]
+    r = subprocess.run(args, capture_output=True, text=True, timeout=45)
+    if r.returncode:
+        raise RuntimeError("Railway read failed: " + r.stderr[:300])
+    return {"service": c["service"], "logs": r.stdout[:18000]}
+
+
+def operate(role, job, action, args):
+    if action not in PERMISSIONS[role] and action != "context":
+        event(job, role, "denied", {"action": action})
+        raise PermissionError(f"{action} is unavailable to {role}")
+    with database() as db:
+        state = db.execute("SELECT status FROM jobs WHERE id=?", (job,)).fetchone()
+    if (ROOT / "PAUSED").exists() or (state and state["status"] == "cancelled"):
+        raise RuntimeError("Pilot operation stopped by pause/cancellation")
+    if action == "context":
+        from context import access
+        result = access(job, args)
+    elif action == "read":
+        text = safe_path(args["path"]).read_text()
+        offset, limit = args.get("offset", 0), args.get("limit", 24000)
+        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 24000:
+            raise ValueError("Read offset must be nonnegative; limit must be 1..24000 characters")
+        end = min(len(text), offset + limit)
+        result = {"path": args["path"], "content": text[offset:end], "offset": offset,
+                  "end": end, "total_chars": len(text), "truncated": end < len(text),
+                  "next_offset": end if end < len(text) else None,
+                  "sha256": hashlib.sha256(text.encode()).hexdigest()}
+    elif action == "write":
+        path = safe_path(args["path"])
+        if "old_text" in args or "new_text" in args:
+            if "content" in args:
+                raise ValueError("Choose replacement or complete content, not both")
+            # A bare KeyError here reached the agent as the word "KeyError" and
+            # nothing else, so it retried the same malformed call until its
+            # iteration budget died. An error an agent cannot act on is a defect.
+            missing = [k for k in ("old_text", "new_text") if k not in args]
+            if missing:
+                raise ValueError(
+                    f"Replacement needs both old_text and new_text; falta {missing}. "
+                    "Para escribir el fichero entero usa 'content' en su lugar."
+                )
+            old, new = args["old_text"], args["new_text"]
+            text = path.read_text()
+            if not isinstance(old, str) or not old or text.count(old) != 1 or not isinstance(new, str):
+                raise ValueError("Replacement requires exactly one matching nonempty old_text")
+            text = text.replace(old, new, 1)
+        else:
+            text = args["content"]
+        if len(text) > 128000:
+            raise ValueError("Artifact too large")
+        from design_guard import before_write, record
+        design_receipt = before_write(role, job, args["path"], text)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        record(job, design_receipt)
+        result = {"path": args["path"], "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        if design_receipt:
+            result["design_foundation"] = design_receipt
+    elif action == "remember":
+        if args["kind"] not in {"belief", "question", "idea", "experience", "skill", "report"}:
+            raise ValueError("Notebook kind must be belief, question, idea, experience, skill, or report")
+        evidence = args.get("evidence")
+        if not isinstance(evidence, list) or not evidence or any(not isinstance(v, str) or not v for v in evidence):
+            raise ValueError("Provenance required")
+        with database() as db:
+            db.execute("BEGIN IMMEDIATE")
+            old = db.execute("SELECT * FROM notebook WHERE id=?", (args["id"],)).fetchone()
+            if old and old["kind"] != args["kind"]:
+                raise ValueError("Notebook entry kind is immutable; use a new id")
+            if "restore_revision" in args:
+                if role not in {"maestro", "reviewer"} or not old:
+                    raise PermissionError("Only maestro/reviewer can restore an existing entry")
+                saved = db.execute("SELECT body FROM notebook_history WHERE id=? AND revision=?",
+                                   (args["id"], args["restore_revision"])).fetchone()
+                if not saved:
+                    raise ValueError("Unknown historical revision")
+                body = json.loads(saved["body"])
+                body["restored_from"] = args["restore_revision"]
+                body["restoration_evidence"] = evidence
+            else:
+                body = {"text": args["text"], "evidence": evidence, "status": args.get("status", "candidate")}
+                if body["status"] not in {"candidate", "supported", "rejected", "retired"}:
+                    raise ValueError("Notebook status is candidate, supported, rejected, or retired; none grants policy authority")
+                if args["kind"] == "skill" and body["status"] == "supported":
+                    raise PermissionError("Skills remain candidates until independent evaluation; self-promotion is unavailable")
+            revision = old["revision"] + 1 if old else 1
+            if old:
+                db.execute("INSERT INTO notebook_history VALUES(?,?,?,?)", (old["id"], old["revision"], old["body"], old["updated"]))
+            db.execute("INSERT OR REPLACE INTO notebook VALUES(?,?,?,?,?,?)", (args["id"], "autonomy-lab", args["kind"], json.dumps(body), revision, time.time()))
+        result = {"id": args["id"], "revision": revision}
+    elif action == "recall":
+        with database() as db:
+            if args.get("id"):
+                result = [dict(r) for r in db.execute("SELECT * FROM notebook WHERE project='autonomy-lab' AND id=?", (args["id"],))]
+                if args.get("history") and result:
+                    result[0]["history"] = [dict(r) for r in db.execute("SELECT revision,body,updated FROM notebook_history WHERE id=? ORDER BY revision", (args["id"],))]
+            else:
+                result = [dict(r) for r in db.execute("SELECT * FROM notebook WHERE project='autonomy-lab' ORDER BY updated DESC LIMIT 40")]
+    elif action == "delegate":
+        if job.startswith("synthesis-"):
+            raise PermissionError("Final synthesis cannot delegate new work")
+        if args["role"] == "maestro":
+            raise PermissionError("Recursive supervisor delegation is outside this pilot budget")
+        result = {"job": enqueue(args["role"], args["prompt"], args["id"], parent=job, depends_on=args.get("depends_on"))}
+    elif action == "results":
+        with database() as db:
+            result = [dict(r) for r in db.execute("""SELECT id,role,status,result FROM jobs
+                WHERE parent=? OR id IN (SELECT prerequisite FROM job_dependencies WHERE job=?)
+                ORDER BY created,id""", (job, job))]
+    elif action == "linear":
+        result = asyncio.run(linear_project())
+    elif action == "railway":
+        result = railway_logs()
+    elif action == "fetch":
+        url = args["url"]
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname not in PUBLIC_HOSTS or parsed.port not in (None, 443):
+            raise PermissionError("Source outside public research allowlist")
+        # Reject redirects before following them, including redirects to private hosts.
+        import urllib.request
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **kw):
+                raise PermissionError("Redirect requires explicit source approval")
+        with urllib.request.build_opener(NoRedirect).open(Request(url, headers={"User-Agent": "BuzzAutonomyPilot/1.0"}), timeout=35) as response:
+            raw = response.read(600000)
+        class Text(HTMLParser):
+            def __init__(self):
+                super().__init__(); self.parts = []
+            def handle_data(self, data):
+                self.parts.append(data)
+        parser = Text(); parser.feed(raw.decode("utf-8", errors="replace"))
+        full_text = " ".join(parser.parts)
+        result = {"url": url, "sha256": hashlib.sha256(raw).hexdigest(), "text": full_text[:28000],
+                  "truncated": len(full_text) > 28000 or len(raw) == 600000,
+                  "access_scope": "excerpt" if len(full_text) > 28000 else "retrieved page"}
+    elif action == "browser":
+        path = safe_path(args["path"])
+        steps = args.get("steps", [])
+        if not isinstance(steps, list) or len(steps) > 24:
+            raise ValueError("Browser accepts at most 24 steps; split independent scenarios into separate calls")
+        r = subprocess.run(["rtk", "proxy", "node", str(REPO / "experiments/buzz-autonomy/browser.cjs"), str(path), str(ROOT / "artifacts"), json.dumps(args.get("steps", []))], capture_output=True, text=True, timeout=55)
+        if r.returncode:
+            raise RuntimeError(r.stderr[:1200])
+        result = json.loads(r.stdout)
+    else:
+        raise ValueError("Unknown action")
+    event(job, role, action, {"args": args, "result": result})
+    return result
+
+
+# How many times the same call may fail the same way before the pilot stops
+# letting the agent spend its budget on it. `tower-diseno` burned all 16
+# iterations repeating one rejected write: the model was not stuck because it
+# was weak, it was stuck because nothing ever told it the door was locked.
+NUDGE_AFTER = 3
+REFUSE_AFTER = 6
+_REPEATS: dict[tuple[str, str, str], int] = {}
+
+NUDGE = (
+    " — Ya has fallado {n} veces con este mismo error. Deja de reintentar: "
+    "cambia de enfoque. Reduce el alcance, prueba otra ruta, o informa de que "
+    "esta vía está cerrada y por qué. Repetir la misma llamada gasta tu "
+    "presupuesto sin acercarte al objetivo."
+)
+REFUSAL = (
+    "Vía cerrada: esta acción ha fallado {n} veces con el mismo error y queda "
+    "bloqueada para este encargo. No la reintentes. Entrega lo que tengas, di "
+    "explícitamente qué no pudiste hacer y cuál es el obstáculo, para que otro "
+    "compañero pueda intentarlo por otro camino."
+)
+
+
+def repetition(job: str, action: str, signature: str) -> int:
+    """Count consecutive identical failures, so a stuck loop becomes visible."""
+    key = (job, action or "", signature)
+    if len(_REPEATS) > 2000:  # bounded: a long-lived process must not grow
+        _REPEATS.clear()
+    _REPEATS[key] = _REPEATS.get(key, 0) + 1
+    return _REPEATS[key]
+
+
+def register(role, job):
+    from tools.registry import registry
+    from toolsets import TOOLSETS
+    name = "pilot_" + role
+    PERMISSIONS[role].add("context")
+    schema = {"name": "pilot", "description": "Execute a scoped operation. Available actions: " + ", ".join(sorted(PERMISSIONS[role])) + ". read: path, optional offset/limit (characters, max 24000); follow next_offset until truncated=false before claiming full inspection. write: path,content OR path,old_text,new_text (exactly one match; prefer small edits to rewriting large files). remember: id,kind (belief|question|idea|experience|skill|report),text,evidence(array),status(candidate|supported|rejected|retired). Skills cannot self-promote to supported. Maestro/reviewer can restore an existing entry with id,kind,restore_revision,evidence instead of text. recall: optional id,history=true. delegate: id,role,prompt, optional depends_on (list of previously enqueued job IDs). Maximum 14 children; no recursive maestro. fetch: url. browser: path,steps(maximum 24; each call starts fresh; array of {action:click|fill|text|inspect|select|press,selector,value?}). results/linear/railway: no args.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": sorted(PERMISSIONS[role])}, "args": {"type": "object"}}, "required": ["action", "args"]}}
+    def handler(params, **kwargs):
+        from inbound import ACTIVE_JOB
+        current_job = ACTIVE_JOB.get() or job
+        try:
+            # A missing key here surfaced to the agent as the word "KeyError"
+            # and the character `'args'`, which says nothing about the shape it
+            # should have sent. One design turn repeated that same malformed
+            # call twelve times. Name the expected envelope instead.
+            if "action" not in params or "args" not in params:
+                raise ValueError(
+                    "Llamada mal formada: la herramienta espera "
+                    '{"action": "<acción>", "args": {...}} y faltan '
+                    f"{[k for k in ('action', 'args') if k not in params]}. "
+                    'Ejemplo: {"action": "write", "args": {"path": "x.html", "content": "..."}}'
+                )
+            return json.dumps(operate(role, current_job, params["action"], params["args"]), ensure_ascii=False)
+        except Exception as exc:
+            action = params.get("action")
+            message = str(exc)[:500]
+            # The signature is type + message, not type alone: two different
+            # PermissionErrors are two different obstacles and must not be
+            # counted as one loop.
+            times = repetition(current_job, action, f"{type(exc).__name__}:{message}")
+            event(current_job, role, "tool_error", {
+                "action": action, "error": type(exc).__name__,
+                "message": message, "repeat": times,
+            })
+            if times >= REFUSE_AFTER:
+                return json.dumps({"error": "Blocked",
+                                   "message": REFUSAL.format(n=times) + f" Último error: {message}"})
+            if times >= NUDGE_AFTER:
+                message += NUDGE.format(n=times)
+            return json.dumps({"error": type(exc).__name__, "message": message})
+    registry.register("pilot", name, schema, handler, override=True)
+    TOOLSETS[name] = {"description": "Scoped pilot capabilities", "tools": ["pilot"]}
+    return name
