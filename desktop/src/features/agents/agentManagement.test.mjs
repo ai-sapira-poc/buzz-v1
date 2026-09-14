@@ -144,3 +144,75 @@ test("agent-requested access edits preserve thread-scoped conversation context",
     sessionPolicy: "thread",
   });
 });
+
+function updatePayload(request = {}) {
+  return {
+    type: AGENT_MANAGEMENT_REQUEST,
+    action: "update",
+    requestId: "request-2",
+    request: { channelId: CHANNEL_ID, agentName: "Scout", ...request },
+  };
+}
+
+test("carries a description through the update request", () => {
+  // The card description was the one field the edit form showed and the
+  // draft contract omitted, so fixing stale cards meant editing each one by
+  // hand.
+  const parsed = parseAgentManagementRequest(
+    updatePayload({ description: "Analista de datos del equipo." }),
+  );
+  assert.equal(parsed.request.description, "Analista de datos del equipo.");
+});
+
+test("an empty description is a clear instruction, not an absent field", () => {
+  const parsed = parseAgentManagementRequest(
+    updatePayload({ description: "" }),
+  );
+  assert.equal(parsed.request.description, "");
+});
+
+test("a description alone is enough to be a change", () => {
+  // `changes` must be non-empty or the whole request is discarded as a no-op.
+  assert.notEqual(
+    parseAgentManagementRequest(updatePayload({ description: "" })),
+    null,
+  );
+});
+
+test("a non-string description is rejected rather than coerced", () => {
+  const parsed = parseAgentManagementRequest(
+    updatePayload({ description: 42 }),
+  );
+  assert.equal(parsed, null);
+});
+
+test("clearing the description survives the overlay onto current input", () => {
+  // `||` here would fall back to the existing text and make clearing
+  // impossible — the exact case this whole change exists for.
+  const current = {
+    id: "persona-1",
+    displayName: "Analista",
+    description: "SIMULACIÓN Limonada. Especialista: analyst.",
+    systemPrompt: "Map goal to signal to metric.",
+  };
+  const merged = updateInputFromRequest(
+    parseAgentManagementRequest(updatePayload({ description: "" })),
+    current,
+  );
+  assert.equal(merged.description, "");
+  assert.equal(merged.systemPrompt, current.systemPrompt);
+});
+
+test("an unrequested description is left untouched", () => {
+  const current = {
+    id: "persona-1",
+    displayName: "Analista",
+    description: "texto actual",
+    systemPrompt: "instrucciones",
+  };
+  const merged = updateInputFromRequest(
+    parseAgentManagementRequest(updatePayload({ model: "cheap-combo" })),
+    current,
+  );
+  assert.equal(merged.description, "texto actual");
+});

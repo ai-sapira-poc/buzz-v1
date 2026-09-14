@@ -10,6 +10,8 @@ const AGENT_REQUEST_KIND: &str = "agent_management_request";
 const PROJECT_CHANNEL_REQUEST_KIND: &str = "project_channel_request";
 const MAX_NAME_CHARS: usize = 120;
 const MAX_PROMPT_CHARS: usize = 20_000;
+/// Matches the desktop persona contract (`UpdatePersonaInput.description`).
+const MAX_DESCRIPTION_CHARS: usize = 280;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +28,11 @@ pub struct UpdateAgentDraft {
     pub agent_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// Public card description. An empty string is meaningful — it clears the
+    /// description — so this is deliberately not folded into the non-empty
+    /// `optional` validation used by the other fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,6 +104,27 @@ fn required(value: String, label: &str, max: usize) -> Result<String, CliError> 
 
 fn optional(value: Option<String>, label: &str) -> Result<Option<String>, CliError> {
     value.map(|value| required(value, label, 300)).transpose()
+}
+
+/// A field where the empty string is a real instruction, not a missing value.
+///
+/// The card description is cleared by setting it to "", which `required` would
+/// reject as absent. Bounded at the same 280 characters the desktop persona
+/// contract enforces, so an over-long description fails here — with a usable
+/// message — instead of being rejected after the owner has opened the form.
+fn clearable(value: Option<String>, label: &str, max: usize) -> Result<Option<String>, CliError> {
+    match value {
+        None => Ok(None),
+        Some(value) => {
+            let value = value.trim();
+            if value.chars().count() > max {
+                return Err(CliError::Usage(format!(
+                    "{label} is too long (max {max} characters)"
+                )));
+            }
+            Ok(Some(value.to_owned()))
+        }
+    }
 }
 
 fn build<T: Serialize>(
@@ -185,6 +213,7 @@ pub fn build_update(
         channel_id: channel_id.clone(),
         agent_name: required(draft.agent_name, "agent name", MAX_NAME_CHARS)?,
         display_name: optional(draft.display_name, "display name")?,
+        description: clearable(draft.description, "description", MAX_DESCRIPTION_CHARS)?,
         system_prompt: draft
             .system_prompt
             .map(|value| required(value, "system prompt", MAX_PROMPT_CHARS))
@@ -195,6 +224,7 @@ pub fn build_update(
         respond_to,
     };
     if request.display_name.is_none()
+        && request.description.is_none()
         && request.system_prompt.is_none()
         && request.runtime.is_none()
         && request.provider.is_none()
@@ -315,6 +345,7 @@ mod tests {
                 channel_id: CHANNEL.into(),
                 agent_name: "Scout".into(),
                 display_name: None,
+                description: None,
                 system_prompt: None,
                 runtime: None,
                 provider: None,
@@ -324,6 +355,65 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("at least one field"));
+    }
+
+    fn update_draft(description: Option<&str>) -> UpdateAgentDraft {
+        UpdateAgentDraft {
+            channel_id: CHANNEL.into(),
+            agent_name: "Scout".into(),
+            display_name: None,
+            description: description.map(str::to_owned),
+            system_prompt: None,
+            runtime: None,
+            provider: None,
+            model: None,
+            respond_to: None,
+        }
+    }
+
+    fn update_request(draft: UpdateAgentDraft) -> serde_json::Value {
+        let owner = Keys::generate();
+        let built = build_update(&Keys::generate(), &owner.public_key(), draft).unwrap();
+        let payload: serde_json::Value = decrypt_observer_payload(&owner, &built.event).unwrap();
+        payload["payload"]["request"].clone()
+    }
+
+    #[test]
+    fn description_alone_is_enough_to_update() {
+        // The card description was the one field the form showed and the CLI
+        // could not touch, so fixing fourteen stale cards meant fourteen manual
+        // edits. It has to stand on its own as a change.
+        let request = update_request(update_draft(Some("Analista de datos del equipo.")));
+        assert_eq!(request["description"], "Analista de datos del equipo.");
+    }
+
+    #[test]
+    fn an_empty_description_clears_rather_than_being_dropped() {
+        // "" is an instruction, not an absent value: it is how a stale
+        // description is removed. Treating it as missing would silently keep
+        // the text the owner asked to delete.
+        let request = update_request(update_draft(Some("")));
+        assert_eq!(request["description"], "");
+    }
+
+    #[test]
+    fn an_absent_description_is_not_serialised() {
+        let request = update_request(UpdateAgentDraft {
+            display_name: Some("Analista".into()),
+            ..update_draft(None)
+        });
+        assert!(request.get("description").is_none());
+    }
+
+    #[test]
+    fn an_over_long_description_fails_before_the_owner_sees_a_form() {
+        let error = build_update(
+            &Keys::generate(),
+            &Keys::generate().public_key(),
+            update_draft(Some(&"x".repeat(MAX_DESCRIPTION_CHARS + 1))),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("too long"));
     }
 
     #[test]

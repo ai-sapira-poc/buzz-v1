@@ -26,6 +26,13 @@ export type AgentManagementUpdateRequest = {
     channelId: string;
     agentName: string;
     displayName?: string;
+    /**
+     * Public card description. Unlike every other field here, the empty string
+     * is meaningful: it clears the description (see `UpdatePersonaInput`). So
+     * this is parsed with a plain string check rather than `isText`, which
+     * treats "" as absent.
+     */
+    description?: string;
     systemPrompt?: string;
     runtime?: string;
     provider?: string;
@@ -99,6 +106,7 @@ export function parseAgentManagementRequest(
       "channelId",
       "agentName",
       "displayName",
+      "description",
       "systemPrompt",
       "runtime",
       "provider",
@@ -113,6 +121,11 @@ export function parseAgentManagementRequest(
   const changes = {
     ...(isText(request.displayName)
       ? { displayName: request.displayName }
+      : {}),
+    // "" is a clear instruction, not an absent field, so this cannot use
+    // `isText` the way the others do.
+    ...(typeof request.description === "string"
+      ? { description: request.description }
       : {}),
     ...(isText(request.systemPrompt)
       ? { systemPrompt: request.systemPrompt }
@@ -159,6 +172,9 @@ export function updateInputFromRequest(
   return {
     ...current,
     displayName: changes.displayName ?? current.displayName,
+    // An empty description clears the card text, so `??` is required here —
+    // `||` would fall back to the current value and make clearing impossible.
+    description: changes.description ?? current.description,
     systemPrompt: changes.systemPrompt ?? current.systemPrompt,
     runtime: changes.runtime ?? current.runtime,
     provider: changes.provider ?? current.provider,

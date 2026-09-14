@@ -323,6 +323,10 @@ pub enum AgentsCmd {
         agent_name: String,
         #[arg(long)]
         display_name: Option<String>,
+        /// Replacement public description shown on the agent's card (max 280
+        /// chars). Pass an empty string to clear it.
+        #[arg(long)]
+        description: Option<String>,
         /// Replacement instructions; use '-' to read from stdin
         #[arg(long)]
         system_prompt: Option<String>,
