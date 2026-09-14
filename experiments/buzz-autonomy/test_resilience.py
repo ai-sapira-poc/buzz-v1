@@ -258,10 +258,84 @@ class BriefsMatchTheHarness(unittest.TestCase):
         from control_plane.tower_project import brief_for
 
         architect = brief_for("arquitecto")
-        self.assertIn("sí puedes leer", architect)
-        self.assertNotIn("no alcanza el repositorio", architect)
+        self.assertIn("which you can read", architect)
+        self.assertNotIn("does not reach", architect)
 
     def test_a_business_role_is_still_told_the_truth_about_its_reach(self):
         from control_plane.tower_project import brief_for
 
-        self.assertIn("no alcanza el", brief_for("diseno"))
+        self.assertIn("does not reach", brief_for("diseno"))
+
+    def test_every_code_role_gets_the_repository_scope(self):
+        # The contradiction cost a whole run once with one role; the roster now
+        # has three on the code plane, so bind the property to all of them
+        # rather than to the one that happened to fail.
+        from control_plane.roster import CONTRACTS, PI
+        from control_plane.tower_project import ASSIGNMENTS, brief_for
+
+        for role in ASSIGNMENTS:
+            with self.subTest(role=role):
+                text = brief_for(role)
+                if CONTRACTS[role]["harness"] == PI:
+                    self.assertIn("which you can read", text)
+                else:
+                    self.assertIn("does not reach", text)
+
+
+class TheDeliverableIsAFeature(unittest.TestCase):
+    """Tower Control is a section in the desktop app, not a folder of documents.
+
+    This was conflated for most of a session: the NIP-MP project and the
+    `tower-control` channel are scaffolding for the team's own coordination, and
+    they were treated as the product. The design role shipped a standalone HTML
+    prototype and declared its own limit — `professional_acceptance: false`,
+    because the pilot gate validates a token dialect in standalone HTML, not
+    adoption of the desktop's components. A prototype is an input to a feature.
+    """
+
+    def test_the_shared_frame_names_the_deliverable_and_the_scaffolding(self):
+        from control_plane.tower_project import SHARED
+
+        self.assertIn("desktop", SHARED)
+        self.assertIn("FeatureGate", SHARED)
+        self.assertIn("scaffolding", SHARED)
+
+    def test_someone_is_assigned_to_actually_ship_it(self):
+        # Eight roles produced analysis and nobody wrote the feature. A plan
+        # where no assignment lands in the repository cannot finish.
+        from control_plane.roster import CONTRACTS, PI
+        from control_plane.tower_project import ASSIGNMENTS
+
+        shippers = [r for r in ASSIGNMENTS if CONTRACTS[r]["harness"] == PI]
+        self.assertIn("coder", shippers)
+        self.assertIn("desktop/", ASSIGNMENTS["coder"]["brief"])
+
+    def test_the_open_problem_is_assigned_rather_than_noted(self):
+        # `run.status = blocked` has no producer. It was carried as a footnote
+        # across three failed assignments; a problem nobody owns stays open.
+        from control_plane.tower_project import ASSIGNMENTS, SHARED
+
+        self.assertIn("run.status = blocked", SHARED)
+        self.assertIn("run.status = blocked", ASSIGNMENTS["arquitecto"]["brief"])
+
+    def test_the_order_is_a_valid_topological_sort(self):
+        from control_plane.tower_project import ASSIGNMENTS, ORDER
+
+        self.assertEqual(set(ORDER), set(ASSIGNMENTS))
+        done: set[str] = set()
+        for role in ORDER:
+            with self.subTest(role=role):
+                for dependency in ASSIGNMENTS[role]["depends_on"]:
+                    self.assertIn(dependency, done,
+                                  f"{role} corre antes que {dependency}")
+            done.add(role)
+
+    def test_every_assignment_names_a_real_roster_identity(self):
+        from control_plane.roster import CONTRACTS
+        from control_plane.tower_project import ASSIGNMENTS
+
+        for role, assignment in ASSIGNMENTS.items():
+            with self.subTest(role=role):
+                self.assertIn(role, CONTRACTS)
+                self.assertEqual(assignment["identity"],
+                                 CONTRACTS[role]["identity"])
