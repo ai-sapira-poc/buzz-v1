@@ -25,6 +25,7 @@ the same thing until the money runs out.
     python control_plane/pursue.py diseno --max-attempts 2 --dry-run
 """
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -136,6 +137,36 @@ def approach(role: str, obstacle: str, attempt: int, brief: str) -> dict:
     }
 
 
+def job_id(role: str, brief: str) -> str:
+    """The job key for this role *and this wording of its assignment*.
+
+    `enqueue` is idempotent on the key and refuses to reuse one with a different
+    payload, so a rewritten brief cannot run under the original key. Deriving a
+    suffix from the brief keeps both runs in the record — the old answer stays
+    readable next to the question it actually answered — instead of silently
+    overwriting one with the other.
+    """
+    base = f"tower-{role}"
+    answered = answered_brief(base)
+    if answered in (None, brief):
+        return base
+    digest = hashlib.sha256(brief.encode()).hexdigest()[:8]
+    return f"{base}-{digest}"
+
+
+def answered_brief(job: str) -> str | None:
+    """The brief this job was actually run against, or None if it never ran.
+
+    `enqueue` stores the prompt, which is the only record of what a finished
+    answer was answering. Without this comparison a rewritten assignment
+    resumes the old run and reports success: the goal changed, the answer did
+    not, and nothing says so.
+    """
+    with database() as db:
+        row = db.execute("SELECT prompt FROM jobs WHERE id=?", (job,)).fetchone()
+    return row[0] if row else None
+
+
 def evidence_for(job: str) -> dict:
     """What actually happened, read from the event log rather than assumed."""
     with database() as db:
@@ -219,6 +250,7 @@ def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> d
 def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
     """Keep trying to reach this assignment's goal, by different routes."""
     brief = brief_for(role)
+    key = job_id(role, brief)
     tried: list[dict] = []
     obstacle = None
     first = 1
@@ -228,14 +260,21 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
     # the failure. So the prior outcome becomes attempt 1, and the ladder picks
     # up from the obstacle it actually hit.
     if not dry_run:
-        previous = evidence_for(f"tower-{role}")
+        if key != f"tower-{role}":
+            # The assignment was rewritten. A finished answer to the previous
+            # wording is not an answer to this one, and treating it as one is
+            # the quietest way to ship nothing while reporting success.
+            print("  el encargo cambió desde la última ejecución; no reanudo",
+                  flush=True)
+            event(key, role, "brief_changed", {"previous": f"tower-{role}"})
+        previous = evidence_for(key)
         if previous["status"] == "done" and previous["final"]:
             return {"role": role, "reached": True, "attempts": [
-                {"attempt": 1, "job": f"tower-{role}", "status": "done",
+                {"attempt": 1, "job": key, "status": "done",
                  "obstacle": None, "resumed": True}]}
         if previous["status"]:
             obstacle = classify(previous)
-            tried.append({"attempt": 1, "job": f"tower-{role}",
+            tried.append({"attempt": 1, "job": key,
                           "status": previous["status"], "obstacle": obstacle,
                           "resumed": True})
             first = 2
@@ -243,7 +282,7 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
                   "— recuperado del intento anterior", flush=True)
 
     for attempt in range(first, max_attempts + 1):
-        job = f"tower-{role}" if attempt == 1 else f"tower-{role}-r{attempt}"
+        job = key if attempt == 1 else f"{key}-r{attempt}"
         plan = ({"brief": brief, "budget": 16, "window": 900} if attempt == 1
                 else approach(role, obstacle, attempt, brief))
         if not plan:
@@ -276,7 +315,7 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
     # operator pick it up without repeating the dead ends.
     result = {"role": role, "reached": False, "attempts": tried,
               "obstacle": obstacle}
-    event(f"tower-{role}", role, "pursuit_exhausted", result)
+    event(key, role, "pursuit_exhausted", result)
     return result
 
 

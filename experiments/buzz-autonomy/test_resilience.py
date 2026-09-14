@@ -339,3 +339,63 @@ class TheDeliverableIsAFeature(unittest.TestCase):
                 self.assertIn(role, CONTRACTS)
                 self.assertEqual(assignment["identity"],
                                  CONTRACTS[role]["identity"])
+
+
+class ARewrittenBriefDoesNotResume(unittest.TestCase):
+    """A finished answer to the old wording is not an answer to the new one.
+
+    Measured: the Tower Control assignments were rewritten from "produce
+    analysis" to "ship a feature in desktop/", and both product and research
+    returned `done` in under a second by resuming the previous run. The goal
+    had changed, the answer had not, and the pursuit reported success.
+    """
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        import pilot
+
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = patch.object(pilot, "ROOT", Path(self.temp.name))
+        root.start()
+        self.addCleanup(root.stop)
+        self.pilot = pilot
+
+    def test_an_unrun_role_uses_the_plain_key(self):
+        from control_plane.pursue import job_id
+
+        self.assertEqual(job_id("producto", "el encargo"), "tower-producto")
+
+    def test_the_same_brief_keeps_the_same_key(self):
+        from control_plane.pursue import job_id
+
+        self.pilot.enqueue("product", "el encargo", "tower-producto")
+        self.assertEqual(job_id("producto", "el encargo"), "tower-producto")
+
+    def test_a_changed_brief_gets_its_own_key(self):
+        # Not merely "a different key": `enqueue` refuses to reuse a key with a
+        # different payload, so reusing it would raise rather than re-run.
+        from control_plane.pursue import job_id
+
+        self.pilot.enqueue("product", "el encargo viejo", "tower-producto")
+        key = job_id("producto", "el encargo nuevo")
+        self.assertNotEqual(key, "tower-producto")
+        self.assertTrue(key.startswith("tower-producto-"))
+
+    def test_the_old_run_is_kept_rather_than_overwritten(self):
+        # The previous answer stays readable next to the question it actually
+        # answered; a rewrite is not a reason to lose the record.
+        from control_plane.pursue import answered_brief, job_id
+
+        self.pilot.enqueue("product", "el encargo viejo", "tower-producto")
+        job_id("producto", "el encargo nuevo")
+        self.assertEqual(answered_brief("tower-producto"), "el encargo viejo")
+
+    def test_the_key_is_stable_for_one_wording(self):
+        from control_plane.pursue import job_id
+
+        self.pilot.enqueue("product", "viejo", "tower-producto")
+        self.assertEqual(job_id("producto", "nuevo"), job_id("producto", "nuevo"))
