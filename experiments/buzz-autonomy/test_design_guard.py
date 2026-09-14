@@ -89,3 +89,64 @@ button {color: var(--color-interactive-foreground);background: var(--color-inter
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class GateTeachesInsteadOfAttrition(unittest.TestCase):
+    """The gate must report every violation at once, with what to use instead.
+
+    Measured: the designer spent three whole assignments (16/16, 24/24, 16/16
+    iterations) learning this gate's rules one rejected write at a time, and
+    the budget died before an artifact existed. Its own report asked for "el
+    spec exacto del gate". Reporting one violation per call is what turned a
+    linter into a guessing game.
+    """
+
+    def gate(self, css, tokens):
+        import subprocess
+        result = subprocess.run(
+            ["node", str(Path(__file__).parent / "design_css.cjs")],
+            input=json.dumps({"css": [css], "tokens": tokens}),
+            text=True, capture_output=True, timeout=20)
+        return result.returncode, result.stderr
+
+    def test_every_violation_is_reported_in_one_pass(self):
+        code, message = self.gate(
+            ".a{ margin: 0 0 4px; gap: 0.375rem; color: #333; }",
+            ["--space-component-gap", "--color-text-heading"])
+        self.assertEqual(code, 1)
+        for prop in ("margin", "gap", "color"):
+            self.assertIn(prop, message)
+        self.assertIn("3 infracción(es)", message)
+
+    def test_each_violation_names_a_usable_token(self):
+        _, message = self.gate(".a{ gap: 0.375rem; }",
+                               ["--space-component-gap", "--color-text-heading"])
+        self.assertIn("--space-component-gap", message)
+        self.assertNotIn("--color-text-heading", message,
+                         "no sugieras un token de otra familia")
+
+    def test_a_property_with_no_token_is_told_so_rather_than_misadvised(self):
+        # A wrong suggestion costs an iteration to disprove, so it is worse
+        # than staying silent. `font-variant-numeric` once drew
+        # `--font-weight-bold`, which cannot satisfy it.
+        _, message = self.gate(".a{ font-variant-numeric: tabular-nums; }",
+                               ["--font-weight-bold"])
+        self.assertIn("no hay token", message)
+        self.assertNotIn("--font-weight-bold", message)
+
+    def test_repeats_of_one_rule_collapse_to_one_lesson(self):
+        _, message = self.gate(".a{ gap: 0.375rem; } .b{ gap: 0.375rem; }",
+                               ["--space-component-gap"])
+        self.assertIn("1 infracción(es)", message)
+
+    def test_valid_token_usage_still_passes(self):
+        code, _ = self.gate(
+            ".a{ gap: var(--space-component-gap); color: var(--color-text-heading); }",
+            ["--space-component-gap", "--color-text-heading"])
+        self.assertEqual(code, 0)
+
+    def test_the_whole_list_survives_the_error_budget(self):
+        # Truncating the message at 600 chars would cut the spec in half and
+        # send the agent back for another round — the attrition this ends.
+        source = (Path(__file__).parent / "design_guard.py").read_text()
+        self.assertIn("result.stderr[:4000]", source)

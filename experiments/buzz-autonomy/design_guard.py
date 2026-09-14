@@ -132,7 +132,11 @@ def validate_html(text, data):
         input=json.dumps({"css": parser.css, "tokens": list(data["tokens"])}), text=True,
         capture_output=True, timeout=15)
     if result.returncode:
-        raise PermissionError("Sapira CSS gate: " + result.stderr[:600])
+        # The gate now returns every violation with its suggested tokens, so the
+        # budget here has to fit the whole list. Truncating at 600 would cut the
+        # spec in half and send the agent back for another round — the exact
+        # attrition this was changed to end.
+        raise PermissionError("Sapira CSS gate: " + result.stderr[:4000])
 
 
 def before_write(role, job, path, text):
