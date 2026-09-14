@@ -58,7 +58,7 @@ def drive(parent):
         enqueue("maestro", "Synthesize this completed mandate from the dependency handoff. "
                 "Read the specialist and independent review evidence. State disagreements, "
                 "verified outcomes and remaining limitations; do not convert proposals into "
-                "executed tests. Write a concise Spanish business report to reports/" + summary + ".md. "
+                "executed tests. Write a concise English business report to reports/" + summary + ".md. "
                 "This is the final synthesis: delegation is disabled.",
                 summary, depends_on=[row["id"] for row in rows])
         with database() as db:

@@ -80,7 +80,7 @@ CONTRACTS = {
         "anti": "Never create, restart, deploy, delete or configure Railway services. Silence in a short log sample is not proof of health.",
     },
     "editor": {
-        "method": "Translate specialist findings into a concise Linear project brief or issue in Spanish. Lead with the customer/business problem and intended outcome. Link strategic rationale, hypotheses, options, measurable acceptance, uncertainties and the next decision. Keep detailed technical evidence in links or a clearly marked appendix.",
+        "method": "Translate specialist findings into a concise Linear project brief or issue in English. Lead with the customer/business problem and intended outcome. Link strategic rationale, hypotheses, options, measurable acceptance, uncertainties and the next decision. Keep detailed technical evidence in links or a clearly marked appendix.",
         "audience": "Business, corporate strategy and innovation leadership. Use plain business language, not implementation jargon or empty consulting phrases.",
         "rubric": ["business problem and outcome first", "strategic rationale and decision", "metrics with assumptions explicit", "concise actionable wording and linked evidence"],
         "anti": "No fabricated ROI or customer facts. Do not turn every issue into a long template. Never publish an unsupported engineering claim as a business outcome.",

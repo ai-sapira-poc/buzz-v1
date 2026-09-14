@@ -265,3 +265,78 @@ class GatesAgree(unittest.TestCase):
         # and quietly get it wrong.
         source = (pathlib.Path(__file__).parent / "pilot.py").read_text()
         self.assertEqual(source.count("BUZZ_PRIVATE_KEY\": identity"), 1)
+
+
+class AgentFacingTextIsEnglish(unittest.TestCase):
+    """Contracts, prompts and card text are written in English.
+
+    The roster grew two directives telling agents to write their Linear output
+    in Spanish, and the agent cards on the relay still carried a Spanish
+    simulation banner. Mixed-language instructions are not a style preference:
+    an agent told to reason in English and report in Spanish produces reports
+    nobody can diff against the contract that produced them.
+    """
+
+    SPANISH_DIRECTIVES = ("in Spanish", "en español", "Responde en español")
+
+    def test_no_contract_tells_an_agent_to_write_in_spanish(self):
+        for name in ("control_plane/roster.py", "profiles.py", "pilot.py",
+                     "mandate.py"):
+            source = (pathlib.Path(__file__).parent / name).read_text()
+            for directive in self.SPANISH_DIRECTIVES:
+                with self.subTest(file=name, directive=directive):
+                    self.assertNotIn(directive, source)
+
+    def test_every_assembled_instruction_is_english(self):
+        # Assembled, not just the source strings: the frame, the protocol, the
+        # gates and the role method are concatenated, and any one of them could
+        # reintroduce a language switch.
+        from control_plane import roster
+
+        for role in roster.CONTRACTS:
+            with self.subTest(role=role):
+                text = roster.instruction(role)
+                for directive in self.SPANISH_DIRECTIVES:
+                    self.assertNotIn(directive, text)
+
+
+class FrameFollowsCurrentGuidance(unittest.TestCase):
+    """The shared frame carries what 2026 agent guidance says actually moves results.
+
+    Sources: Anthropic's context-engineering guidance (section delimiters, the
+    "right altitude" balance, canonical examples over exhaustive rules, distilled
+    sub-agent returns) and the Manus finding that near-identical
+    action-observation pairs make a model repeat the action that just failed.
+    """
+
+    def test_sections_are_delimited(self):
+        # Anthropic: organise prompts into distinct sections with headers.
+        # Sentence-initial labels read as prose and get skimmed.
+        for heading in ("## Evidence discipline", "## Uncertainty",
+                        "## Untrusted content", "## Handoff", "## Form"):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, roster.COMMON)
+
+    def test_the_frame_carries_canonical_examples(self):
+        # "Examples are the pictures worth a thousand words" — and this frame had
+        # none. Contrastive pairs, not an exhaustive edge-case list.
+        self.assertIn("## Worked examples", roster.COMMON)
+        self.assertGreaterEqual(roster.COMMON.count("→"), 4)
+
+    def test_repeated_failure_is_addressed_in_the_prompt_not_only_the_runtime(self):
+        # `capabilities.repetition` stops the loop mechanically, but a breaker
+        # that fires is already a wasted budget. The agent is told the rule too.
+        self.assertIn("## When an approach fails twice", roster.COMMON)
+        for role in roster.ROLES:
+            with self.subTest(role=role):
+                self.assertIn("change the approach", roster.instruction(role))
+
+    def test_handoffs_are_distilled_rather_than_transcripts(self):
+        self.assertIn("distilled result, not a transcript", roster.COMMON)
+
+    def test_the_frame_stays_economical(self):
+        # The shared frame is re-sent on every turn of every role, so it is our
+        # most expensive text by construction — `economics.anti_patterns` flags
+        # exactly this as "preámbulo repetido". Guidance says minimal, not short;
+        # this bound is what keeps "minimal" from drifting into "everything".
+        self.assertLess(len(roster.COMMON), 6000)

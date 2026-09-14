@@ -44,7 +44,7 @@ ROLES = {
     "ux": "User research and interaction design: behavioral evidence, user journeys, accessibility and usability risks.",
     "architect": "Assess technical feasibility, boundaries and trade-offs; prefer reversible, minimal architecture.",
     "operations": "Diagnose service behavior using read-only logs; separate observed symptoms from root-cause hypotheses.",
-    "editor": "Own Linear product communication in clear Spanish business language: customer problem, strategic impact, decision and measurable outcomes. Never invent ROI or market data.",
+    "editor": "Own Linear product communication in clear English business language: customer problem, strategic impact, decision and measurable outcomes. Never invent ROI or market data.",
 }
 
 
