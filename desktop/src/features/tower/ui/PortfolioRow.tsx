@@ -2,7 +2,10 @@ import * as React from "react";
 
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/lib/cn";
-import type { PortfolioLine } from "@/features/tower/domain/portfolio";
+import type {
+  PortfolioLine,
+  WorkState,
+} from "@/features/tower/domain/portfolio";
 import {
   Tooltip,
   TooltipContent,
@@ -106,6 +109,27 @@ function CostCell({ line }: { line: PortfolioLine }) {
   );
 }
 
+const WORK_STATE_LABEL: Record<WorkState, string> = {
+  requested: "Requested",
+  running: "Running",
+  done: "Done",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+function WorkLine({ line }: { line: PortfolioLine }) {
+  const { work } = line;
+  if (work === null) {
+    return null;
+  }
+  return (
+    <span className="truncate text-2xs text-muted-foreground">
+      {WORK_STATE_LABEL[work.state]}
+      {work.summary === null ? "" : ` · ${work.summary}`}
+    </span>
+  );
+}
+
 type PortfolioRowProps = {
   line: PortfolioLine;
 } & React.ComponentPropsWithoutRef<"li">;
@@ -139,6 +163,7 @@ export const PortfolioRow = React.forwardRef<HTMLLIElement, PortfolioRowProps>(
           <span className="truncate font-mono text-2xs text-muted-foreground">
             {line.project.id}
           </span>
+          <WorkLine line={line} />
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
           <span

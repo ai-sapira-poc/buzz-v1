@@ -50,11 +50,36 @@ export interface PortfolioCost {
   coverage: { observedAgents: number; totalAgents: number };
 }
 
+/**
+ * The lifecycle state of one unit of agent work, as reported by the source.
+ *
+ * The producer states it; this model never derives it from prose. `requested`
+ * means asked-for and not yet picked up — it is not "stalled", and nothing here
+ * infers stalling.
+ */
+export type WorkState =
+  | "requested"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export interface PortfolioWork {
+  state: WorkState;
+  /** The source's own human-readable line, or `null` when it said nothing. */
+  summary: string | null;
+}
+
 /** One supervisory line of the portfolio. */
 export interface PortfolioLine {
   project: PortfolioProject;
   recency: PortfolioRecency;
   blocked: PortfolioBlocked;
+  /**
+   * The unit of work this line stands for. `null` means the line is not a run
+   * — the source could name the subject but not any work under it.
+   */
+  work: PortfolioWork | null;
   /**
    * `null` means not legible — the UI renders "not available", never `0`.
    */

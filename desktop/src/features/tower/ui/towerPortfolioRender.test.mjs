@@ -9,28 +9,24 @@ import { derivePortfolioView } from "./portfolioState.ts";
 import { TowerSection } from "./TowerSection.tsx";
 
 /**
- * End-to-end through the port: the real Buzz adapter reads projects, and the
- * section renders them. This binds the three seams the unit tests cover
+ * End-to-end through the port: the real Buzz adapter reads agent work, and the
+ * section renders it. This binds the three seams the unit tests cover
  * separately (adapter → domain → view) so a break in any one of them fails
  * here instead of only in the app.
  */
-function project(overrides = {}) {
+function jobEvent({ kind, job, role, at, content = "" }) {
   return {
-    id: "project-a",
-    name: "Project A",
-    dtag: "project-a",
-    description: "",
-    owner: "owner",
-    createdAt: 1_700_000_000,
-    projectChannelId: null,
-    relatedChannelIds: [],
-    status: "active",
-    projectAddress: "30621:owner:project-a",
-    primaryRepositoryAddress: null,
-    repositoryAddresses: [],
-    repositories: [],
-    legacy: false,
-    ...overrides,
+    id: `${job}-${kind}`,
+    pubkey: "agent",
+    kind,
+    created_at: at,
+    content,
+    sig: "sig",
+    tags: [
+      ["p", "owner"],
+      ["job", job],
+      ["role", role],
+    ],
   };
 }
 
@@ -46,11 +42,19 @@ function snapshot(overrides) {
   };
 }
 
-test("real project data renders as portfolio rows, not as empty or error", async () => {
-  const source = createTowerBuzzSource(async () => [
-    project({ id: "buzz-autonomy", name: "buzz-autonomy" }),
-    project({ id: "npl-mp", name: "npl-mp" }),
-  ]);
+test("real agent work renders as portfolio rows, not as empty or error", async () => {
+  const source = createTowerBuzzSource(
+    async () => [
+      jobEvent({ kind: 43002, job: "buzz-autonomy", role: "builder", at: 100 }),
+      jobEvent({
+        kind: 43001,
+        job: "npl-mp",
+        role: "reviewer",
+        at: 90,
+      }),
+    ],
+    async () => "owner",
+  );
 
   const lines = await source.getPortfolio();
   const view = derivePortfolioView(snapshot({ data: lines }), () => {});
@@ -62,16 +66,20 @@ test("real project data renders as portfolio rows, not as empty or error", async
   assert.match(html, /npl-mp/);
   assert.doesNotMatch(html, /tower-empty-state/);
   assert.doesNotMatch(html, /tower-error-state/);
+  assert.match(html, /Running/);
+  assert.match(html, /Requested/);
   // What the adapter cannot source is shown as absent, never as a measured zero.
-  assert.match(html, /Unknown/);
   assert.match(html, /Not available/);
   assert.doesNotMatch(html, /0 tok/);
 });
 
 test("a dead source renders the error branch and no rows", async () => {
-  const source = createTowerBuzzSource(async () => {
-    throw new Error("relay unreachable");
-  });
+  const source = createTowerBuzzSource(
+    async () => {
+      throw new Error("relay unreachable");
+    },
+    async () => "owner",
+  );
 
   const error = await source.getPortfolio().then(
     () => null,

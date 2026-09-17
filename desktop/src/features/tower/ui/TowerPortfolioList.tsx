@@ -20,13 +20,26 @@ const GRID =
 export function TowerPortfolioList({
   lines,
   refreshing,
+  focusOnMount = false,
 }: {
   lines: PortfolioLine[];
   refreshing: boolean;
+  /**
+   * Set only for the one legitimate hand-off (spec §6): the list mounted
+   * because the operator's `Retry` resolved, so focus follows their action
+   * into the list. Ordinary mounts (loading → data, a refetch) never steal
+   * focus — the default keeps the list out of the focus path entirely.
+   */
+  focusOnMount?: boolean;
 }) {
   const ordered = React.useMemo(() => orderPortfolioLines(lines), [lines]);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const rowRefs = React.useRef<Array<HTMLLIElement | null>>([]);
+
+  React.useEffect(() => {
+    if (!focusOnMount) return;
+    rowRefs.current[0]?.focus();
+  }, [focusOnMount]);
 
   // A refetch that shrinks the list must not leave the tab stop on a row that
   // no longer exists, or the list would silently drop out of the tab order.

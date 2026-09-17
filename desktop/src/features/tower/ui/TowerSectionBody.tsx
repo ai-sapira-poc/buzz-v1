@@ -28,7 +28,20 @@ function announcementFor(view: PortfolioView): string {
  * `aria-live="polite"` region — one announcement per phase change, never one
  * per row.
  */
-export function TowerSectionBody({ view }: { view: PortfolioView }) {
+export function TowerSectionBody({
+  view,
+  focusListOnMount = false,
+  onErrorRetry,
+  onErrorRetryBlur,
+}: {
+  view: PortfolioView;
+  /** Forwarded to the list; true only on the post-Retry hand-off (spec §6). */
+  focusListOnMount?: boolean;
+  /** Overrides the R5 retry so the section can hand focus to the list. */
+  onErrorRetry?: () => void;
+  /** Cancels that hand-off if the operator moves focus first (spec §6). */
+  onErrorRetryBlur?: () => void;
+}) {
   const { lines } = view;
   const hasLines = lines !== null && lines.length > 0;
 
@@ -49,10 +62,18 @@ export function TowerSectionBody({ view }: { view: PortfolioView }) {
           explain itself under the stale banner rather than render blank. */}
       {lines !== null && lines.length === 0 ? <TowerEmptyState /> : null}
       {view.phase === "unreachable" && lines === null ? (
-        <TowerErrorState failure={view.failure} onRetry={view.retry} />
+        <TowerErrorState
+          failure={view.failure}
+          onRetry={onErrorRetry ?? view.retry}
+          onRetryBlur={onErrorRetryBlur}
+        />
       ) : null}
       {hasLines && lines !== null ? (
-        <TowerPortfolioList lines={lines} refreshing={view.refreshing} />
+        <TowerPortfolioList
+          focusOnMount={focusListOnMount}
+          lines={lines}
+          refreshing={view.refreshing}
+        />
       ) : null}
     </div>
   );

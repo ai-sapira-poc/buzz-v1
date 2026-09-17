@@ -11,9 +11,17 @@ import type { TowerFailure } from "./portfolioState";
 export function TowerErrorState({
   failure,
   onRetry,
+  onRetryBlur,
 }: {
   failure: TowerFailure | null;
   onRetry: () => void;
+  /**
+   * Fired when focus lands on another element while the retry button is still
+   * on screen — the operator moved on, so the pending hand-off must cancel
+   * (spec §6). A `relatedTarget` of `null` means the button itself is leaving
+   * the document (the list replaced it), which must NOT cancel.
+   */
+  onRetryBlur?: () => void;
 }) {
   return (
     <Alert
@@ -34,6 +42,9 @@ export function TowerErrorState({
         ) : null}
         <Button
           className="self-start"
+          onBlur={(event) => {
+            if (event.relatedTarget) onRetryBlur?.();
+          }}
           onClick={onRetry}
           type="button"
           variant="outline"

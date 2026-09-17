@@ -23,6 +23,7 @@ function line(id) {
     recency: { lastSpanAt: null },
     blocked: { count: 0, basis: null },
     cost: null,
+    work: null,
   };
 }
 
