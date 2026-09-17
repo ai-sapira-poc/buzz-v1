@@ -222,6 +222,9 @@ enum Cmd {
     /// Get and set channel canvas documents
     #[command(subcommand)]
     Canvas(CanvasCmd),
+    /// Publish the agent job lifecycle (kinds 43001-43006)
+    #[command(subcommand)]
+    Jobs(JobsCmd),
     /// Add, remove, and list emoji reactions
     #[command(subcommand)]
     Reactions(ReactionsCmd),
@@ -777,6 +780,34 @@ pub enum CanvasCmd {
 }
 
 #[derive(Subcommand)]
+pub enum JobsCmd {
+    /// Publish one lifecycle event for one job
+    Publish {
+        /// requested | accepted | progress | result | cancelled | error
+        #[arg(long)]
+        state: String,
+        /// Job id correlating this assignment's whole lifecycle
+        #[arg(long)]
+        job: String,
+        /// Owner pubkey (64-char hex); this is what puts it in their feed
+        #[arg(long)]
+        owner: String,
+        /// Channel id for NIP-29 scoping
+        #[arg(long)]
+        channel: Option<String>,
+        /// Agent role that owns the work
+        #[arg(long)]
+        role: Option<String>,
+        /// OpenTelemetry trace id, when one exists
+        #[arg(long)]
+        trace: Option<String>,
+        /// One short line, already in business language
+        #[arg(long, default_value = "")]
+        content: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum ReactionsCmd {
     /// Add an emoji reaction to a message
     Add {
@@ -2178,6 +2209,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
         Cmd::Canvas(sub) => commands::channels::dispatch_canvas(sub, &client).await,
+        Cmd::Jobs(sub) => commands::jobs::dispatch(sub, &client).await,
         Cmd::Reactions(sub) => commands::reactions::dispatch(sub, &client).await,
         Cmd::Emoji(sub) => commands::emoji::dispatch(sub, &client).await,
         Cmd::Gifs(sub) => commands::gifs::dispatch(sub, &client).await,
