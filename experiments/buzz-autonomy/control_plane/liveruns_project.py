@@ -94,9 +94,10 @@ Acceptance for the goal as a whole: with agents running in this pilot, a person
 opening this view sees each agent and each unit of work as a node, sees the
 relationship between them as an edge, and can tell at a glance which nodes are
 active, which finished and which failed. Selecting a node tells them more without
-leaving the view. When there is no work, the view says there is no work rather
-than drawing an empty canvas. When the source cannot be read, it says that
-instead of drawing nothing, which looks identical to calm.
+leaving the view. When there is no work, the view explains what it shows and may
+illustrate it with an example clearly marked as such, rather than drawing an
+empty canvas. When the source cannot be read, it says that instead of drawing
+nothing, which looks identical to calm.
 
 What the data can currently support, and what it cannot:
 
@@ -112,6 +113,25 @@ What the data can currently support, and what it cannot:
   that reshuffles itself on every refresh is unreadable.
 - `run.status = blocked` still has no mechanical producer. Do not invent one,
   and do not let a node's appearance imply a blockage nobody observed.
+
+There is one more surface, and it is not an afterthought: **the view with no data
+in it**. Today's most likely first impression of this screen is an empty one,
+because a relay that has not yet been updated accepts no job events at all. An
+empty canvas would make a working screen look broken and a broken one look calm,
+which is the single worst outcome this project can produce.
+
+So the no-data case is a designed surface, not a fallback. It explains what this
+view shows, and it may illustrate that with an example graph so a first-time
+viewer understands the shape of what will appear. Two hard constraints on that
+illustration, and they are not negotiable:
+
+- It must be unmistakably labelled as an example. A person must never be able to
+  mistake demonstration nodes for agents that are really working. If a label can
+  be missed at a glance, the illustration is wrong.
+- It must not collapse the three distinct states into one. "No work yet",
+  "cannot read the source" and "still loading" are different facts and stay
+  visibly different. An error must never render as a friendly illustrated
+  emptiness, which would hide exactly the failure the operator needs to see.
 
 Those points are a sketch of the terrain, not an instruction for how to cross it.
 If the evidence says the seams are elsewhere, say so in your first two sentences
