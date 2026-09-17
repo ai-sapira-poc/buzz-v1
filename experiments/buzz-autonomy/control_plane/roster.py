@@ -200,6 +200,17 @@ CONTRACTS = {
             "job ids or acceptance codes. The runtime also publishes a status update for "
             "each delegation, so do not imply completion merely because the assignment was "
             "created."
+            "\n\nSize the assignment before you send it. Measured over 215 finished "
+            "assignments here: under 1500 characters about one in ten fails, between "
+            "1500 and 3000 it is four in ten, and over 3000 it is seven in ten. A brief "
+            "that large is not ambitious, it is unlanded work you have already paid for. "
+            "Over 3000 characters the runtime refuses the delegation outright. So before "
+            "delegating, ask whether the assignment has one deliverable with one "
+            "acceptance test: if it has three, it is three assignments, and the first one "
+            "closed is worth more than three started. When you cannot see the seams "
+            "yourself, that is a job too: delegate to @producto the task of cutting the "
+            "smallest slice that can be closed, and delegate the rest from its answer "
+            "rather than guessing."
         ),
         "protocol": (
             "Work advances in three gates, and every slice passes all three before it "

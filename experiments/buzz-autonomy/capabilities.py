@@ -339,6 +339,53 @@ def list_entries(relative: str, depth: int, limit: int) -> dict:
     return {"path": relative, "entries": entries, "count": len(entries), "truncated": truncated}
 
 
+# Measured over 215 finished assignments in this pilot, not chosen by taste.
+# Failure rate by brief size:
+#     under 800 chars   13%   (126 done / 18 failed)
+#     800 to 1500       10%   ( 47 done /  5 failed)
+#     1500 to 3000      42%   (  7 done /  5 failed)
+#     over 3000         71%   (  2 done /  5 failed)
+# A finished assignment averages 767 characters; a failed one 1401. Size is the
+# single strongest predictor of failure we can see before spending anything, and
+# the reactive answer (shrink the scope after the budget dies) arrives one wasted
+# assignment too late.
+SLICE_WARNING_CHARS = 1500
+SLICE_REFUSAL_CHARS = 3000
+
+
+def slicing_advice(prompt: str) -> str | None:
+    """Warn when an assignment enters the band where they start to fail."""
+    size = len(prompt)
+    if size < SLICE_WARNING_CHARS:
+        return None
+    return (
+        f"Encargo de {size} caracteres: en este tamaño el 42% de los encargos de "
+        "este piloto no llegó a entregar. Considera partirlo en piezas con "
+        "aceptación propia."
+    )
+
+
+def refuse_if_unsliceable(prompt: str) -> None:
+    """Stop an assignment too large to be likely to land.
+
+    Refusing with the rule alone would teach nothing, so this names the measured
+    evidence and the two ways forward: slice it here, or hand the slicing to the
+    role whose job that is. Both are cheaper than a 71% chance of spending a full
+    budget and delivering nothing.
+    """
+    size = len(prompt)
+    if size <= SLICE_REFUSAL_CHARS:
+        return
+    raise ValueError(
+        f"Encargo de {size} caracteres, por encima de {SLICE_REFUSAL_CHARS}. "
+        "Medido en este piloto, el 71% de los encargos de este tamaño falló sin "
+        "entregar nada. No lo delegues entero: (a) pártelo en piezas, cada una "
+        "con su entrada, entregable y prueba de aceptación, y delega la primera; "
+        "o (b) delega a 'product' el encargo de cortar la rebanada más pequeña "
+        "que se pueda cerrar, y delega después a partir de su resultado."
+    )
+
+
 def operate(role, job, action, args):
     if action == "batch":
         # Authorised per step rather than as a whole: a batch grants nothing.
@@ -453,6 +500,10 @@ def operate(role, job, action, args):
             raise PermissionError("Final synthesis cannot delegate new work")
         if args["role"] == "maestro":
             raise PermissionError("Recursive supervisor delegation is outside this pilot budget")
+        require_keys(action, args, "role", "prompt", "id")
+        # Size is checked before anything durable happens: an oversize
+        # assignment that reaches the queue has already bought its own failure.
+        refuse_if_unsliceable(args["prompt"])
         child = enqueue(args["role"], args["prompt"], args["id"], parent=job,
                         depends_on=args.get("depends_on"))
         # The technical handoff remains in the job/event log. This separate,
@@ -464,6 +515,11 @@ def operate(role, job, action, args):
         publish_delegation("maestro", args["role"], child,
                            dependencies=args.get("depends_on"))
         result = {"job": child}
+        advice = slicing_advice(args["prompt"])
+        if advice:
+            result["warning"] = advice
+            event(job, role, "oversize_delegation",
+                  {"child": child, "chars": len(args["prompt"])})
     elif action == "results":
         with database() as db:
             result = [dict(r) for r in db.execute("""SELECT id,role,status,result FROM jobs

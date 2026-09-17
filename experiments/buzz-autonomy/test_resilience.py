@@ -653,3 +653,47 @@ class EverySuccessLeavesEvidence(unittest.TestCase):
         source = (Path(__file__).parent / "supervisor.py").read_text()
         self.assertIn("_pi_role_for(job)", source.split("def execute(job")[1][:600])
         self.assertTrue(callable(supervisor.execute))
+
+
+class AnAssignmentIsSizedBeforeItIsSent(unittest.TestCase):
+    """Slicing was reactive: the scope only shrank after a budget died.
+
+    Measured over 215 finished assignments in this pilot, brief size is the
+    strongest predictor of failure available before spending anything:
+    under 1500 characters about one in ten fails, 1500 to 3000 four in ten,
+    over 3000 seven in ten. Discovering that after the fact costs a whole
+    assignment.
+    """
+
+    def test_the_thresholds_match_the_bands_that_were_measured(self):
+        self.assertEqual(capabilities.SLICE_WARNING_CHARS, 1500)
+        self.assertEqual(capabilities.SLICE_REFUSAL_CHARS, 3000)
+
+    def test_a_small_assignment_passes_without_noise(self):
+        self.assertIsNone(capabilities.slicing_advice("x" * 700))
+        capabilities.refuse_if_unsliceable("x" * 700)
+
+    def test_the_failing_band_is_warned_but_not_blocked(self):
+        # Four in ten is bad odds, not a certainty: warn, and let it through.
+        advice = capabilities.slicing_advice("x" * 2000)
+        self.assertIn("2000", advice)
+        self.assertIn("42%", advice)
+        capabilities.refuse_if_unsliceable("x" * 2000)
+
+    def test_an_unlandable_assignment_is_refused_with_both_ways_out(self):
+        # A refusal that only states the rule teaches nothing, so it names the
+        # evidence and the two moves: slice it, or delegate the slicing.
+        with self.assertRaises(ValueError) as caught:
+            capabilities.refuse_if_unsliceable("x" * 4000)
+        message = str(caught.exception)
+        self.assertIn("71%", message)
+        self.assertIn("product", message, "debe ofrecer delegar el troceado")
+        self.assertIn("aceptación", message)
+
+    def test_the_maestro_is_told_before_it_is_refused(self):
+        # Learning a limit by hitting it costs a turn; the contract states it.
+        from control_plane import roster
+
+        instruction = roster.instruction("maestro")
+        self.assertIn("3000", instruction)
+        self.assertIn("@producto", instruction)
