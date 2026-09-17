@@ -564,3 +564,74 @@ class UnviewableFilesNeverEnterTheTranscript(unittest.TestCase):
         # An error the model cannot act on costs a turn and teaches nothing.
         self.assertIn("ls -l", self.guard)
         self.assertIn("file", self.guard)
+
+
+class HermesAlsoProvesItIsAlive(unittest.TestCase):
+    """Only Pi beat, so only Pi could be recovered.
+
+    A Hermes worker killed mid-conversation was indistinguishable from one
+    still thinking, so its row stayed `running` forever and every dependent
+    behind it waited on a state that would never change. The lease recovery
+    already existed; it simply had nothing to read for these roles.
+    """
+
+    def test_the_worker_beats_around_the_model_conversation(self):
+        import worker
+
+        source = (Path(__file__).parent / "worker.py").read_text()
+        self.assertIn("heartbeat(job, role, trace_id)", source,
+                      "el latido debe envolver la conversación, no otra cosa")
+        self.assertIn("assignment_heartbeat", source,
+                      "mismo nombre de evento que Pi, o la recuperación no lo ve")
+        self.assertTrue(callable(worker.heartbeat))
+
+    def test_it_stops_when_the_turn_does(self):
+        import worker
+
+        beats = []
+        with patch.object(worker, "event", lambda *a, **k: beats.append(a)), \
+             patch.object(worker, "HEARTBEAT_INTERVAL", 0.01):
+            with worker.heartbeat("job", "designer"):
+                time.sleep(0.05)
+            during = len(beats)
+            time.sleep(0.05)
+        self.assertGreater(during, 0, "debe latir mientras el modelo piensa")
+        self.assertEqual(len(beats), during, "y dejar de latir al terminar")
+
+    def test_a_job_that_never_beat_is_left_alone(self):
+        # Absence of evidence from a harness that does not report is not
+        # evidence of death: requeuing live work duplicates it.
+        import supervisor
+
+        source = (Path(__file__).parent / "supervisor.py").read_text()
+        self.assertIn('not row["heartbeat"]', source)
+        self.assertIsNotNone(supervisor.recover_stale_pi_leases)
+
+
+class FailedCodeWorkIsStillOnDisk(unittest.TestCase):
+    """A code role that dies leaves its edits behind.
+
+    `tower-coder` wrote nine files and a whole feature module, passing the
+    desktop suite, and was then recorded as a bare failure: the operator had
+    no way to learn from the control plane that the work existed.
+    """
+
+    def test_the_paths_are_named_in_the_failure_and_not_called_accepted(self):
+        source = (Path(__file__).parent / "supervisor.py").read_text()
+        self.assertIn("uncommitted_work_on_failure", source)
+        self.assertIn("sin revisar", source,
+                      "debe decir que no está revisado, no insinuar aceptación")
+        # The listing must be the difference, not everything git happens to
+        # report: a dirty worktree before the run is not this job's doing.
+        self.assertIn("_worktree_state() - before", source)
+
+    def test_it_reads_the_real_worktree_and_survives_git_being_unavailable(self):
+        import supervisor
+
+        with patch.object(supervisor.subprocess, "run",
+                          side_effect=OSError("git missing")):
+            self.assertEqual(supervisor._worktree_state(), set())
+        with patch.object(supervisor.subprocess, "run", return_value=SimpleNamespace(
+                returncode=0, stdout=" M desktop/a.tsx\n?? desktop/b/\n")):
+            self.assertEqual(supervisor._worktree_state(),
+                             {"desktop/a.tsx", "desktop/b/"})

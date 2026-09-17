@@ -114,6 +114,24 @@ def _pi_heartbeats(job: str, role: str, trace_id: str | None = None,
         thread.join(timeout=2)
 
 
+def _worktree_state() -> set[str]:
+    """What the repository looks like right now, as `path` entries.
+
+    Used to tell what a failed code role actually left behind. `git status`
+    knows; the control plane did not, so a run that wrote nine files and a
+    whole feature module was reported as a bare failure and the operator had
+    no way to learn the work existed.
+    """
+    try:
+        done = subprocess.run(["git", "status", "--porcelain"], cwd=str(REPO),
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if done.returncode:
+        return set()
+    return {line[3:].strip() for line in done.stdout.splitlines() if line[3:].strip()}
+
+
 def _execute_pi(job: str, role: str) -> bool:
     """Run a delegated code role in Pi and preserve its handoff."""
     from control_plane import pi_harness, telemetry
@@ -124,6 +142,7 @@ def _execute_pi(job: str, role: str) -> bool:
 
     row, attempt = _claim_pi(job)
     identity = row["role"]
+    before = _worktree_state()
     checkpoint = ROOT / "runs" / "pi-checkpoints" / f"{job}.jsonl"
     cancel_path = ROOT / "runs" / "cancel" / f"{job}.cancel"
     trace_id = None
@@ -175,18 +194,32 @@ def _execute_pi(job: str, role: str) -> bool:
     except Exception as error:
         telemetry.flush()
         cancelled = _job_cancelled(job)
+        # A code role that dies still leaves its edits on disk. Reporting only
+        # the exception hid a run that had written nine files and a whole
+        # feature module before its session poisoned itself — work that was
+        # already passing the desktop suite. Say what is there; do not imply
+        # it was reviewed or accepted.
+        written = sorted(_worktree_state() - before)
+        detail = str(error)
+        if written:
+            listing = ", ".join(written[:20]) + (" …" if len(written) > 20 else "")
+            detail += f" | cambios sin revisar en el repositorio: {listing}"
+            event(job, identity, "uncommitted_work_on_failure",
+                  {"paths": written[:100], "count": len(written)})
         with database() as db:
             db.execute(
                 "UPDATE jobs SET status=?,result=? WHERE id=? AND status='running'",
                 ("cancelled" if cancelled else "failed",
-                 f"{type(error).__name__}: {error}"[:12000], job),
+                 f"{type(error).__name__}: {error}"[:12000]
+                 + (f"\n\nCambios sin revisar: {listing}" if written else ""), job),
             )
         event(job, identity, "stopped", {
             "reason": "cancelled" if cancelled else "failed",
             "error": f"{type(error).__name__}: {error}"[:500],
+            "changed_paths": len(written),
         })
         publish_update(identity, role, job, "cancelled" if cancelled else "failed",
-                       detail=str(error), key="pi-cancelled" if cancelled else "pi-failed")
+                       detail=detail, key="pi-cancelled" if cancelled else "pi-failed")
         return False
 
 
@@ -197,12 +230,20 @@ def _job_cancelled(job: str) -> bool:
 
 
 def recover_stale_pi_leases(now: float | None = None) -> list[str]:
-    """Requeue Pi jobs left `running` by a supervisor that is no longer there.
+    """Requeue jobs left `running` by a supervisor that is no longer there.
 
     The checkpoint and session on disk are untouched: the next attempt runs
     with the same `--session-id`, so pi resumes rather than starts over. A job
     that has already used its attempts is marked failed instead, so the loss
     is visible rather than a row that looks busy forever.
+
+    This once covered only Pi, because only Pi emitted a heartbeat: a Hermes
+    worker killed mid-conversation was indistinguishable from one still
+    thinking, so the safe reading was to leave it alone — and its dependents
+    waited on a row that would never change. Now that `worker.heartbeat` beats
+    too, silence means the same thing on both harnesses and both are covered.
+    A job that never beat at all is still left alone: absence of evidence from
+    a harness that does not report is not evidence of death.
     """
     now = time.time() if now is None else now
     with database() as db:
@@ -214,7 +255,10 @@ def recover_stale_pi_leases(now: float | None = None) -> list[str]:
         ).fetchall()
     recovered = []
     for row in rows:
-        if _pi_role_for(row["id"]) is None:
+        if _pi_role_for(row["id"]) is None and not row["heartbeat"]:
+            # A Hermes job that has not beaten once may predate the heartbeat,
+            # or may simply be in its first interval. Either way there is no
+            # evidence of death, and requeuing live work duplicates it.
             continue
         age = now - max(row["started"] or 0, row["heartbeat"] or 0)
         if age <= LEASE_TTL:
