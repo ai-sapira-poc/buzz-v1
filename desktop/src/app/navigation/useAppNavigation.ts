@@ -104,6 +104,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goTower = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/tower",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goProfile = React.useCallback(
     (pubkey: string, behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -470,6 +481,7 @@ export function useAppNavigation() {
     goProject,
     goProjects,
     goPulse,
+    goTower,
     goProfile,
     goSettings,
     goWorkflow,

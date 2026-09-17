@@ -29,6 +29,15 @@
       "defaultEnabled": true
     },
     {
+      "id": "tower",
+      "name": "Tower Control",
+      "description": "Supervisory view of what the team of agents is doing, how it is going, and what needs you",
+      "platforms": [
+        "desktop"
+      ],
+      "defaultEnabled": true
+    },
+    {
       "id": "forum",
       "name": "Forum Channels",
       "description": "Forum-style threaded channels for long-form discussions",

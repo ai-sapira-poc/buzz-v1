@@ -11,6 +11,7 @@ type ViewLoadingFallbackKind =
   | "forum"
   | "projects"
   | "pulse"
+  | "tower"
   | "workflows";
 
 type ViewLoadingFallbackProps = {
@@ -414,6 +415,9 @@ export function ViewLoadingFallback({
       ) : null}
       {kind === "pulse" ? (
         <ChannelLoadingBody hasHeader={shouldShowChannelHeader} />
+      ) : null}
+      {kind === "tower" ? (
+        <BuzzLoadingState fill label="Loading Tower Control" />
       ) : null}
     </div>
   );

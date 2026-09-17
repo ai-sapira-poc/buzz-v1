@@ -153,6 +153,7 @@ export function AppShell() {
     goProjects,
     goPulse,
     goSettings,
+    goTower,
     goWorkflows,
     closeSettings,
     openSearchHit,
@@ -892,6 +893,7 @@ export function AppShell() {
                           onSelectHome={() => void goHome()}
                           onSelectProjects={() => void goProjects()}
                           onSelectPulse={() => void goPulse()}
+                          onSelectTower={() => void goTower()}
                           onSelectSettings={handleOpenSettings}
                           onSelectWorkflows={() => void goWorkflows()}
                           onSetPresenceStatus={(status) =>
