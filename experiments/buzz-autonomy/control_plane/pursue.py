@@ -45,7 +45,12 @@ from control_plane.tower_project import ASSIGNMENTS, CHANNEL, brief_for
 # Ordered widest-to-narrowest: the first rung that matches the failure wins.
 # Keep `denied` first — a permission failure must never be answered by retrying
 # with a bigger budget, which would just spend more money on the same refusal.
-LADDER = ("denied", "blocked", "budget", "timeout", "empty")
+LADDER = ("denied", "blocked", "transient", "budget", "timeout", "empty")
+
+# Upstream refused to serve the turn. Not a fact about the assignment.
+TRANSIENT = re.compile(
+    r"chat_admission_busy|upstream model error|\b(?:429|500|502|503|504)\b"
+    r"|temporarily unavailable|rate.?limit|overloaded", re.I)
 
 
 def classify(outcome: dict) -> str:
@@ -55,6 +60,11 @@ def classify(outcome: dict) -> str:
         return "denied"
     if outcome.get("blocked_calls"):
         return "blocked"
+    # The endpoint refusing to admit the turn says nothing about the assignment.
+    # `tower-coder` died on `503 chat_admission_busy — retry shortly`; rewriting
+    # the brief in answer to that would change the one thing that was fine.
+    if TRANSIENT.search(reason):
+        return "transient"
     if "max_iterations" in reason or "budget" in reason:
         return "budget"
     # Match the supervisor's bare "timeout" as well as pi's "TimeoutExpired":
@@ -139,6 +149,17 @@ def approach(role: str, obstacle: str, attempt: int, brief: str,
     """
     if obstacle == "denied":
         return {}  # no rung fixes a permission; escalate instead
+
+    if obstacle == "transient":
+        # The one obstacle whose right answer IS the same attempt again: the
+        # brief was never the problem, so changing it would discard good work
+        # to answer an outage. Wait first, and let the wait grow.
+        return {
+            "brief": brief,
+            "budget": turn_budget(role),
+            "window": 900,
+            "wait": min(300, 30 * 2 ** (attempt - 2)),
+        }
 
     if obstacle == "budget":
         found = diagnose_budget(previous_job)
@@ -425,6 +446,13 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
             obstacle = "budget"  # exercise the ladder without spending money
             continue
 
+        if plan.get("wait"):
+            # The endpoint asked us to retry shortly. Doing it immediately is
+            # how a transient outage turns into an exhausted ladder.
+            print(f"  esperando {plan['wait']}s: el modelo rechazó el turno",
+                  flush=True)
+            event(job, role, "waiting_for_upstream", {"seconds": plan["wait"]})
+            time.sleep(plan["wait"])
         started = time.time()
         outcome = attempt_once(role, job, plan["brief"], plan["budget"], plan["window"])
         obstacle = classify(outcome)

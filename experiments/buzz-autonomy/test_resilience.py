@@ -553,3 +553,30 @@ class PrerequisiteSubstitution(unittest.TestCase):
         with self.assertRaises(ValueError):
             pilot.substitute_prerequisite("dependent", "no-such-edge", "delivered", "razón")
         self.assertIsNotNone(self.unmet())
+
+
+class UpstreamOutageIsNotAFailedAssignment(unittest.TestCase):
+    """`tower-coder` died on `503 chat_admission_busy — retry shortly`.
+
+    The harness reported it as "3 unparseable lines; the run cannot be
+    trusted", which sent the operator to debug a parser while the model
+    endpoint was down — the real cause was sitting intact in `agent_end`.
+    """
+
+    def test_an_endpoint_refusing_the_turn_is_its_own_obstacle(self):
+        for reason in ("upstream model error for coder: 503 chat_admission_busy",
+                       "429 rate limit", "model overloaded", "502 Bad Gateway"):
+            with self.subTest(reason=reason):
+                self.assertEqual(pursue.classify({"reason": reason}), "transient")
+
+    def test_a_transient_outage_is_retried_unchanged_after_waiting(self):
+        # The one obstacle whose right answer is the same attempt again.
+        plan = pursue.approach("coder", "transient", 2, "brief original")
+        self.assertEqual(plan["brief"], "brief original", "no reescribe el encargo")
+        self.assertGreater(plan["wait"], 0)
+        self.assertLess(pursue.approach("coder", "transient", 2, "b")["wait"],
+                        pursue.approach("coder", "transient", 4, "b")["wait"],
+                        "la espera crece")
+
+    def test_a_real_budget_failure_is_still_told_apart_from_an_outage(self):
+        self.assertEqual(pursue.classify({"reason": "max_iterations_reached(32/32)"}), "budget")

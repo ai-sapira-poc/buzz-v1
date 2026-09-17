@@ -241,12 +241,25 @@ def _parse(role: str, stdout: str) -> dict:
             events.append(json.loads(line))
         except json.JSONDecodeError:
             broken.append(line[:200])
-    if broken:
+    end = next((e for e in reversed(events) if e.get("type") == "agent_end"), None)
+    if broken and end is None:
+        # No outcome and a damaged transcript: the run is genuinely unknown.
         raise RuntimeError(
             f"pi emitted {len(broken)} unparseable line(s) for {role}; "
             f"the run cannot be trusted. First: {broken[0]!r}"
         )
-    end = next((e for e in reversed(events) if e.get("type") == "agent_end"), None)
+    if broken:
+        # `tower-coder` lost a completed run to 3 damaged lines out of 5942 —
+        # and, far worse, the parser error *replaced* the real cause, which
+        # `agent_end` was carrying intact: a 503 from the model endpoint. The
+        # operator was sent to debug a parser while the endpoint was down.
+        #
+        # The damage is pi's own stdout interleaving its JSONL events with the
+        # bash tool's output (`{"type":"message_update","usa ===\"; ls ...`),
+        # so it is not ours to prevent here. The transcript is evidence; the
+        # outcome lives in `agent_end`. Keep the outcome, and mark the
+        # transcript damaged so nobody reads it as complete.
+        pass
     if end is None:
         raise RuntimeError(
             f"pi never reported agent_end for {role}; the turn did not complete"
@@ -267,6 +280,16 @@ def _parse(role: str, stdout: str) -> dict:
         if final:
             break
     if not final:
+        # When the endpoint refuses the turn, `agent_end` carries the reason and
+        # the message list is empty. Reporting only "no final answer" sent the
+        # operator hunting through the harness for an outage upstream of it:
+        # the real line was `503 chat_admission_busy — retry shortly`. Say what
+        # the model said, and name it as upstream so the ladder can wait rather
+        # than spend a rung rewriting a brief that was never the problem.
+        upstream = next((m.get("errorMessage") for m in reversed(messages)
+                         if m.get("stopReason") == "error" and m.get("errorMessage")), None)
+        if upstream:
+            raise RuntimeError(f"upstream model error for {role}: {str(upstream)[:300]}")
         raise RuntimeError(f"pi produced no final answer for {role}")
 
     usage = next(

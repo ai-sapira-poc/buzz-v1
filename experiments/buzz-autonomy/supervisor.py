@@ -325,9 +325,21 @@ def retry(job):
     return bool(changed)
 
 
-def cancel(job):
+def cancel(job, reason=None):
+    """Stop a job, saying why.
+
+    A cancelled row with an empty `result` is indistinguishable from one the
+    operator abandoned: whoever reads the record later cannot tell whether the
+    work was superseded, wrong, or simply forgotten. The reason is the whole
+    difference between a decision and a gap.
+    """
     with database() as db:
-        return bool(db.execute("UPDATE jobs SET status='cancelled' WHERE id=? AND status IN ('queued','running')", (job,)).rowcount)
+        stopped = bool(db.execute(
+            "UPDATE jobs SET status='cancelled', result=COALESCE(?,result) "
+            "WHERE id=? AND status IN ('queued','running')", (reason, job)).rowcount)
+    if stopped and reason:
+        event(job, "control-plane", "cancelled", {"reason": reason})
+    return stopped
 
 
 if __name__ == "__main__":
