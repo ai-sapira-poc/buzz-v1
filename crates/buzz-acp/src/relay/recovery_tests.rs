@@ -352,8 +352,15 @@ async fn blocked_recovery_write_is_bounded_and_retains_loss() {
     state.channel_dropped_since.insert(ch, 700);
     let (tx, _rx) = mpsc::channel(1);
     let started = tokio::time::Instant::now();
+    // This outer timeout is a hang guard, not a measurement: the thing under
+    // test is the `WS_SEND_TIMEOUT_SECS` assertion below. It used to be 15s,
+    // which left only 5s of slack over the 10s send timeout — not enough to
+    // serialise a 16MB frame on a machine under memory pressure, so the guard
+    // fired first and `unwrap()` panicked on `Elapsed` while the production
+    // path was behaving correctly. Give it room; a genuine hang still trips it
+    // long before anyone waits on CI.
     timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(WS_SEND_TIMEOUT_SECS + 45),
         recovery::recover_one(&mut client, &mut state, &tx, "agent"),
     )
     .await
