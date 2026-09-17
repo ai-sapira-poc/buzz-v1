@@ -227,3 +227,48 @@ class Controls(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWorkIsReadableByAProgramToo(unittest.TestCase):
+    """Kinds 43001-43006 existed, the desktop feed already rendered all six,
+    and nothing ever emitted them. Tower Control and the feed both sat in
+    front of an empty stream while the control plane's work stayed locked
+    inside its own sqlite.
+    """
+
+    def test_every_operator_state_maps_to_a_lifecycle_kind(self):
+        import operator_updates
+
+        # The states the runtime actually publishes, from worker.py and
+        # supervisor.py. A state with no mapping would go out as prose only.
+        for state in ("created", "started", "running", "done", "cancelled", "failed"):
+            self.assertIn(state, operator_updates.JOB_EVENT_STATE, state)
+
+    def test_an_unknown_state_is_skipped_rather_than_guessed(self):
+        import operator_updates
+
+        self.assertFalse(
+            operator_updates.publish_job_event("maestro", "designer", "j", "vibes"))
+
+    def test_the_relay_being_down_never_fails_the_work(self):
+        # A job that succeeded must not be recorded as failed because a
+        # publication did not land. The local event is the retry record.
+        from unittest.mock import patch
+        import operator_updates
+
+        recorded = []
+        with patch.object(operator_updates, "event",
+                          lambda *a, **k: recorded.append(a[2])), \
+             patch("pilot.buzz", side_effect=RuntimeError("relay down")):
+            published = operator_updates.publish_job_event(
+                "maestro", "designer", "job-1", "done")
+        self.assertFalse(published)
+        self.assertIn("job_event_failed", recorded)
+
+    def test_the_line_reads_as_business_language_not_as_a_state_name(self):
+        import operator_updates
+
+        line = operator_updates._line("designer", "failed", "max_iterations_reached(32/32)")
+        self.assertIn("no ha podido entregar", line)
+        self.assertNotIn("failed", line)
+        self.assertLessEqual(len(line), 400)

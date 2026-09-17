@@ -27,6 +27,7 @@ the same thing until the money runs out.
 """
 import argparse
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -40,7 +41,16 @@ import control_plane  # noqa: F401  (pins BUZZ_PILOT_HOME before pilot loads)
 
 from pilot import REPO, ROOT, database, event
 from control_plane.roster import CONTRACTS, PI, turn_budget
-from control_plane.tower_project import ASSIGNMENTS, CHANNEL, brief_for
+# Which project this run pursues. Hardcoding `tower_project` meant a second
+# project could only be run by editing this file, which is how a run ends up
+# chasing the previous goal's assignments without anyone noticing. The module
+# must expose ASSIGNMENTS, CHANNEL and brief_for; a typo fails here, loudly,
+# before anything is enqueued.
+PROJECT_MODULE = os.environ.get("BUZZ_PILOT_PROJECT", "tower_project")
+_project = importlib.import_module(f"control_plane.{PROJECT_MODULE}")
+ASSIGNMENTS = _project.ASSIGNMENTS
+CHANNEL = _project.CHANNEL
+brief_for = _project.brief_for
 
 # Ordered widest-to-narrowest: the first rung that matches the failure wins.
 # Keep `denied` first — a permission failure must never be answered by retrying

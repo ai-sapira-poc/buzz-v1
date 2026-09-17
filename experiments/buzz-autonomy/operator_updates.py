@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 from pilot import database, event
 
@@ -188,6 +189,85 @@ def _already_published(job: str, key: str) -> bool:
     return False
 
 
+# The machine-readable half of an operator update. `publish_update` already
+# says what happened in prose; this says it in a shape a program can read.
+#
+# Kinds 43001-43006 have existed in buzz-core since the agent job protocol was
+# defined, and the desktop feed already renders each with its own headline. No
+# producer ever existed, so both the feed and Tower Control sat in front of an
+# empty stream while the control plane's work stayed locked in its own sqlite.
+#
+# The kind IS the state. A reader never parses the prose to find out what
+# happened, which is what keeps the two halves from drifting apart.
+JOB_EVENT_STATE = {
+    "created": "requested",
+    "started": "accepted",
+    "running": "progress",
+    "done": "result",
+    "cancelled": "cancelled",
+    "failed": "error",
+    "blocked": "progress",
+}
+
+
+def publish_job_event(publisher: str, role: str, job: str, state: str,
+                      detail: object | None = None) -> bool:
+    """Emit one lifecycle event, without ever making the work depend on it.
+
+    Returns whether it was published. A relay that is down must not fail a job
+    that succeeded: the local event log is the retry record, exactly as it is
+    for the prose update this runs beside.
+    """
+    kind_state = JOB_EVENT_STATE.get(state)
+    if kind_state is None:
+        return False
+    try:
+        from pilot import buzz, config
+
+        owner = config().get("viewer")
+        if not owner:
+            return False
+        args = ["jobs", "publish", "--state", kind_state, "--job", job,
+                "--owner", owner, "--role", role,
+                "--content", _line(role, state, detail)]
+        channel = os.environ.get("BUZZ_PUBLISH_CHANNEL")
+        if channel:
+            args += ["--channel", channel]
+        receipt = buzz(publisher, args)
+        event(job, publisher, "job_event_published", {
+            "state": kind_state, "role": role,
+            "event_id": receipt.get("event_id") if isinstance(receipt, dict) else None,
+        })
+        return True
+    except Exception as error:  # noqa: BLE001 - the local event is the retry record
+        event(job, publisher, "job_event_failed", {
+            "state": kind_state, "role": role,
+            "error": f"{type(error).__name__}: {error}"[:500],
+        })
+        return False
+
+
+# The feed shows the kind's own headline ("Job accepted", "Job failed"), so the
+# content says who and what, not the state again.
+_SAID = {
+    "created": "tiene un encargo nuevo",
+    "started": "ha empezado a trabajar",
+    "running": "sigue trabajando",
+    "done": "ha entregado",
+    "cancelled": "se ha detenido por decisión del operador",
+    "failed": "no ha podido entregar",
+    "blocked": "está esperando a una dependencia",
+}
+
+
+def _line(role: str, state: str, detail: object | None) -> str:
+    """One short line, in the language the operator reads everywhere else."""
+    text = f"{label(role)} {_SAID.get(state, state)}"
+    if detail:
+        text += ". " + str(detail).replace("\n", " ").strip()[:200]
+    return text[:400]
+
+
 def publish_update(publisher: str, role: str, job: str, state: str, *,
                    missing: list[str] | None = None, detail: object | None = None,
                    count: str | None = None, key: str | None = None) -> dict | None:
@@ -202,6 +282,9 @@ def publish_update(publisher: str, role: str, job: str, state: str, *,
         from reporting import speak
 
         receipt = speak(publisher, job, text)
+        # The prose reached a person; now make the same transition readable by a
+        # program. Deliberately after, and deliberately unable to fail the work.
+        publish_job_event(publisher, role, job, state, detail)
         event(job, publisher, "operator_update", {
             "key": update_key, "role": role, "state": state,
             "event_id": receipt.get("event_id") if isinstance(receipt, dict) else None,
