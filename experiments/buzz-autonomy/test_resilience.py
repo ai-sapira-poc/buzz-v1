@@ -612,3 +612,13 @@ class UpstreamOutageIsNotAFailedAssignment(unittest.TestCase):
         self.assertEqual(len(calls), pursue.MAX_TRANSIENT_WAITS + 1, "pero con tope")
         self.assertIn("no admite turnos", json.dumps(out, ensure_ascii=False),
                       "y debe decir que el endpoint está caído, no inventar otra causa")
+
+    def test_a_permanent_upstream_refusal_is_never_retried_as_an_outage(self):
+        # Watching this run cost nine backed-off retries of a 400: the combo
+        # has no vision model and never will within the run.
+        reason = ('upstream model error for coder: 400: {"message":"No target in '
+                  'combo cheap-combo has confirmed vision support for this image '
+                  'request","code":"capability_mismatch"}')
+        self.assertEqual(pursue.classify({"reason": reason}), "denied")
+        self.assertEqual(pursue.approach("coder", "denied", 2, "brief"), {},
+                         "no hay peldaño que arregle una capacidad que falta")

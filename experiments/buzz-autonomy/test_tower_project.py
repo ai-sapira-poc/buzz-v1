@@ -483,3 +483,50 @@ class StaleLeaseRecovery(unittest.TestCase):
 
         execute.assert_not_called()
         self.assertEqual(self._status(), ("failed", self.supervisor.MAX_ATTEMPTS))
+
+
+class PoisonedSessionIsQuarantined(unittest.TestCase):
+    """A session pi can no longer replay must not be replayed forever.
+
+    `tower-coder` read a PNG; pi stored it as an image block in the session
+    history, and every resume re-sent it to a combo with no vision model. The
+    reply was a permanent `400 capability_mismatch`, so the job could never run
+    again — and the ladder retried it nine times before giving up.
+    """
+
+    def setUp(self):
+        from control_plane import pi_harness
+
+        self.harness = pi_harness
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        patcher = patch.object(pi_harness, "ROOT", Path(self.temp.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.sessions = Path(self.temp.name) / "runs" / "pi-sessions"
+        self.sessions.mkdir(parents=True)
+        self.session = self.sessions / "2026-01-01T00-00-00Z_tower-coder.jsonl"
+        self.session.write_text('{"role":"toolResult"}\n')
+
+    def test_the_history_is_moved_aside_and_kept_as_evidence(self):
+        moved = self.harness.quarantine_session("tower-coder", "imagen sin modelo de visión")
+        self.assertEqual(moved, [self.session.name])
+        self.assertFalse(self.session.exists(), "no debe seguir donde pi la reanudaría")
+        kept = self.sessions / "quarantined" / self.session.name
+        self.assertTrue(kept.exists(), "se conserva: es el registro de lo que hizo el agente")
+        reason = (self.sessions / "quarantined" / "tower-coder.reason.txt").read_text()
+        self.assertIn("visión", reason)
+
+    def test_only_the_named_session_moves(self):
+        other = self.sessions / "2026-01-01T00-00-00Z_tower-revisor.jsonl"
+        other.write_text("{}\n")
+        self.harness.quarantine_session("tower-coder", "razón")
+        self.assertTrue(other.exists(), "la sesión de otro trabajo no se toca")
+
+    def test_a_capability_refusal_triggers_it_and_a_clean_run_does_not(self):
+        self.harness._quarantine_if_poisoned("tower-coder", '{"code":"capability_mismatch"}')
+        self.assertFalse(self.session.exists())
+        survivor = self.sessions / "2026-01-01T00-00-00Z_tower-otro.jsonl"
+        survivor.write_text("{}\n")
+        self.harness._quarantine_if_poisoned("tower-otro", '{"type":"agent_end"}')
+        self.assertTrue(survivor.exists(), "una ejecución sana no se pone en cuarentena")

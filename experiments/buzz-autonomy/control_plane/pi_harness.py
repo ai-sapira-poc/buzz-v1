@@ -17,6 +17,7 @@ constraint is a request and a flag is a guarantee:
 """
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import shutil
@@ -147,6 +148,24 @@ def _execute(command: list[str], cwd: str, env: dict, timeout: int | None,
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
+def _quarantine_if_poisoned(session_id: str, stdout: str) -> None:
+    """A session pi can no longer replay must not be replayed again.
+
+    Without this the same poisoned history is re-sent on every attempt, which
+    is how a single PNG read cost nine backed-off retries and would have cost
+    every future run of this job too.
+    """
+    if POISONED.search(stdout or ""):
+        moved = quarantine_session(
+            session_id,
+            "Sesión irreproducible: el historial contiene una imagen y el combo "
+            "no tiene modelo con visión (400 capability_mismatch). Se conserva "
+            "como evidencia; el siguiente intento arranca limpio.")
+        if moved:
+            print(f"  sesión {session_id} puesta en cuarentena: {', '.join(moved)}",
+                  flush=True)
+
+
 def run(role: str, prompt: str, cwd: str, timeout: int | None = DEFAULT_TIMEOUT,
         job: str | None = None, checkpoint_path: str | Path | None = None,
         cancel_path: str | Path | None = None,
@@ -189,10 +208,15 @@ def run(role: str, prompt: str, cwd: str, timeout: int | None = DEFAULT_TIMEOUT,
     )
     cancellation = Path(cancel_path) if cancel_path else None
     with telemetry.turn(role, harness="pi", model=MODEL) as span:
-        result = _execute(
-            command, cwd, {**os.environ, "PI_ROLE": role}, timeout,
-            checkpoint, cancellation, cancel_check,
-        )
+        try:
+            result = _execute(
+                command, cwd, {**os.environ, "PI_ROLE": role}, timeout,
+                checkpoint, cancellation, cancel_check,
+            )
+        except Exception:
+            raise
+        else:
+            _quarantine_if_poisoned(session_id, result.stdout)
         record = _finish(role, result)
         # pi carries no OpenTelemetry of its own, so the dispatcher records the
         # turn on its behalf from the usage pi already reports. Instrumenting pi
@@ -218,6 +242,36 @@ def _finish(role: str, result: subprocess.CompletedProcess) -> dict:
     if not result.stdout.strip():
         raise RuntimeError(f"pi returned no output for {role}; nothing was produced")
     return _parse(role, result.stdout)
+
+
+POISONED = re.compile(r"capability_mismatch|vision support", re.I)
+
+
+def quarantine_session(session_id: str, reason: str) -> list[str]:
+    """Move a session pi can no longer replay, keeping it as evidence.
+
+    `tower-coder` read a PNG. pi turned the result into an
+    `{"type":"image","data":"iVBORw0KGgo..."}` block inside the session
+    history, and because every run resumes by `--session-id`, that block was
+    re-sent on each attempt to a combo with no vision model. The reply was a
+    permanent `400 capability_mismatch`, so the session could never run again
+    and the ladder retried it nine times.
+
+    The history is unusable but not worthless: it is the record of what the
+    agent did before it poisoned itself. So it is moved aside rather than
+    deleted, and the next run starts clean.
+    """
+    session_dir = ROOT / "runs" / "pi-sessions"
+    quarantine = session_dir / "quarantined"
+    moved = []
+    for path in sorted(session_dir.glob(f"*_{session_id}.jsonl")):
+        quarantine.mkdir(parents=True, exist_ok=True)
+        target = quarantine / path.name
+        path.rename(target)
+        moved.append(target.name)
+    if moved:
+        (quarantine / f"{session_id}.reason.txt").write_text(reason + "\n")
+    return moved
 
 
 def _parse(role: str, stdout: str) -> dict:

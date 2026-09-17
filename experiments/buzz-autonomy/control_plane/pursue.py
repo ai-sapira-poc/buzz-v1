@@ -48,9 +48,19 @@ from control_plane.tower_project import ASSIGNMENTS, CHANNEL, brief_for
 LADDER = ("denied", "blocked", "transient", "budget", "timeout", "empty")
 
 # Upstream refused to serve the turn. Not a fact about the assignment.
+#
+# Matching a generic "upstream model error" here was a costly mistake of its
+# own: it swept up a permanent `400 capability_mismatch` and retried it nine
+# times with backoff. Transient means the *same request* can succeed later.
 TRANSIENT = re.compile(
-    r"chat_admission_busy|upstream model error|\b(?:429|500|502|503|504)\b"
+    r"chat_admission_busy|\b(?:429|500|502|503|504)\b"
     r"|temporarily unavailable|rate.?limit|overloaded", re.I)
+
+# The request itself is wrong or unserviceable. Retrying it is free money for
+# nobody, and no rung of the ladder rewrites a missing capability.
+UPSTREAM_PERMANENT = re.compile(
+    r"capability_mismatch|invalid_request_error|\b(?:400|401|403|404)\b"
+    r"|context_length|model_not_found", re.I)
 
 
 def classify(outcome: dict) -> str:
@@ -63,6 +73,8 @@ def classify(outcome: dict) -> str:
     # The endpoint refusing to admit the turn says nothing about the assignment.
     # `tower-coder` died on `503 chat_admission_busy — retry shortly`; rewriting
     # the brief in answer to that would change the one thing that was fine.
+    if UPSTREAM_PERMANENT.search(reason):
+        return "denied"  # a capability the combo lacks; escalate, never retry
     if TRANSIENT.search(reason):
         return "transient"
     if "max_iterations" in reason or "budget" in reason:
