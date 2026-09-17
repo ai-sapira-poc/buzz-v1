@@ -3405,8 +3405,20 @@ mod tests {
 
     #[tokio::test]
     async fn keepalive_resets_idle_past_deadline() {
-        // Keepalive session/update lines every 50ms against a 100ms idle deadline.
-        // The turn should survive well past the 100ms deadline (proves the fix).
+        // Keepalive session/update lines every 50ms against a 500ms idle deadline.
+        // The turn should survive well past that deadline (proves the fix).
+        //
+        // The margin between the keepalive interval and the deadline is the
+        // whole point of these numbers. It used to be 50ms against 100ms, and
+        // on a loaded machine the child shell could not always get scheduled
+        // within 100ms of its previous write — so the idle timer fired for a
+        // real reason, the turn ended early, and the test failed while the
+        // production code was behaving correctly. That is a test that reports
+        // the machine's load as a defect, and it blocked every push until
+        // someone re-ran it on a quiet laptop.
+        //
+        // Ten times the interval leaves room for scheduling jitter without
+        // blunting the assertion below.
         let mut client = spawn_script(
             r#"for i in $(seq 1 20); do echo '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"keepalive"}}}'; sleep 0.05; done; sleep 10"#,
         )
@@ -3418,16 +3430,21 @@ mod tests {
             .read_until_response_with_idle_timeout(
                 "test",
                 999,
-                std::time::Duration::from_millis(100),
+                std::time::Duration::from_millis(500),
                 hard_deadline,
                 max_dur,
             )
             .await;
         let elapsed = start.elapsed();
-        // 20 keepalives × 50ms = ~1000ms of activity, then idle fires after 100ms more.
-        // Must survive well past the 100ms deadline.
+        // 20 keepalives × 50ms = ~1000ms of activity, then idle fires 500ms later.
+        //
+        // The lower bound has to sit ABOVE the idle deadline, not below it: if
+        // keepalives stopped resetting the timer the turn would end at ~500ms,
+        // so a `>= 500ms` assertion would happily pass on the broken code. At
+        // 900ms the only way to get here is by surviving the first deadline,
+        // which is the behaviour under test.
         assert!(
-            elapsed >= std::time::Duration::from_millis(500),
+            elapsed >= std::time::Duration::from_millis(900),
             "keepalive should reset idle past the deadline; elapsed only {elapsed:?}"
         );
         assert!(elapsed < std::time::Duration::from_secs(5));
