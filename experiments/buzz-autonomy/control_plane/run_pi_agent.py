@@ -28,6 +28,7 @@ import control_plane  # noqa: F401  (pins BUZZ_PILOT_HOME before pilot loads)
 from pilot import ROOT, REPO, MODEL, config
 from control_plane.roster import CODE_ROLES, CONTRACTS, PI, instruction
 from control_plane.run_hermes import CONTROL_PLANE_CHANNEL
+from control_plane.runtime_policy import acp_args, wait_timeout
 
 # Buzz integrated its own pi adapter fork (PR #7552), pinned in the desktop
 # preset at `managed_agents/discovery/presets.rs:113`. It replaces the
@@ -37,10 +38,11 @@ from control_plane.run_hermes import CONTROL_PLANE_CHANNEL
 # (`crates/buzz-acp/src/acp.rs:26`). With the upstream adapter that prompt never
 # arrives — which is what our own instruction-file workaround was papering over.
 PI_ACP = shutil.which("buzz-pi-acp") or "buzz-pi-acp"
+PI_COMMAND_GUARD = Path(__file__).with_name("pi_command_guard.ts")
 
 
 def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, cwd: str | None = None,
-        duration: int = 1800) -> int:
+        duration: int | None = None) -> int:
     contract = CONTRACTS[role]
     if contract["harness"] != PI:
         raise ValueError(f"{role!r} runs on Hermes; use control_plane.run_hermes")
@@ -63,7 +65,11 @@ def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, cwd: str | None = None,
         "BUZZ_RELAY_URL": relay,
         "BUZZ_ACP_AGENT_OWNER": c["viewer"],
         "BUZZ_ACP_AGENT_COMMAND": PI_ACP,
-        "BUZZ_ACP_AGENT_ARGS": "",
+        # buzz-acp splits this value on commas. The first `--` tells
+        # buzz-pi-acp that the remaining arguments belong to Pi, so the same
+        # per-command timeout guard is active for live code-plane agents and
+        # for dispatcher-invoked Pi jobs.
+        "BUZZ_ACP_AGENT_ARGS": f"--,--extension,{PI_COMMAND_GUARD}",
         "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "queue",
         "BUZZ_ACP_SESSION_POLICY": "thread",
         "BUZZ_ACP_CHANNELS": channel,
@@ -90,14 +96,13 @@ def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, cwd: str | None = None,
     with log.open("a") as output:
         process = subprocess.Popen(
             [str(REPO / "target/debug/buzz-acp"),
-             "--idle-timeout", "300", "--max-turn-duration", "900",
-             "--exit-after-inactivity", str(duration), "--permission-mode", "dont-ask"],
+             *acp_args(duration), "--permission-mode", "dont-ask"],
             env=env, cwd=workdir, stdout=output, stderr=output, start_new_session=True,
         )
         print(f"{role} ({contract['identity']}) pid={process.pid} "
               f"harness=pi-acp cwd={workdir} log={log}", flush=True)
         try:
-            return process.wait(timeout=duration + 120)
+            return process.wait(timeout=wait_timeout(duration))
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -113,6 +118,7 @@ if __name__ == "__main__":
     parser.add_argument("role", choices=CODE_ROLES)
     parser.add_argument("--channel", default=CONTROL_PLANE_CHANNEL)
     parser.add_argument("--cwd", default=None)
-    parser.add_argument("--duration", type=int, default=1800)
+    parser.add_argument("--duration", type=int, default=None,
+                        help="optional inactivity lifetime; omit for a long-running agent")
     args = parser.parse_args()
     raise SystemExit(run(args.role, args.channel, args.cwd, args.duration))

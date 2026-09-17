@@ -5,9 +5,9 @@ is right for a test and useless for actually working. An agent that exits after
 fifteen minutes means the operator writes in the channel and nothing answers —
 with no error anywhere, because nothing failed. It simply was not there.
 
-Each role gets a supervised child process. `--exit-after-inactivity` still fires
-inside buzz-acp, and this supervisor restarts it, so idle agents cost nothing
-while remaining reachable within a few seconds of a message arriving.
+Each role gets a supervised child process. Long-running agents stay resident by
+default; explicit cancellation, process loss or a deliberately configured
+diagnostic lifetime is visible and recoverable through the supervisor.
 
     ~/.hermes/hermes-agent/venv/bin/python control_plane/serve.py
     ~/.hermes/hermes-agent/venv/bin/python control_plane/serve.py --status
@@ -31,7 +31,6 @@ from control_plane.run_hermes import CONTROL_PLANE_CHANNEL
 
 PID_DIR = ROOT / "run"
 RESTART_BACKOFF = 5
-WINDOW = 1800
 
 
 def pid_file(role: str) -> Path:
@@ -44,6 +43,90 @@ def alive(pid: int) -> bool:
         return True
     except OSError:
         return False
+
+
+def _process_snapshot() -> dict[int, tuple[int, str]]:
+    """Return a small process table for terminating nested agent sessions.
+
+    A supervisor starts the ACP child in its own session so that a job can own
+    its process tree. That also means killing only the supervisor's process
+    group leaves the ACP child (and, for Pi, a second nested session) orphaned.
+    The snapshot is read-only and bounded; if the platform cannot provide it,
+    the caller falls back to the supervisor group rather than guessing a PID.
+    """
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,command="],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    processes: dict[int, tuple[int, str]] = {}
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(maxsplit=2)
+        if len(fields) < 2:
+            continue
+        try:
+            child, parent = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        processes[child] = (parent, fields[2] if len(fields) == 3 else "")
+    return processes
+
+
+def _descendants(root: int, processes: dict[int, tuple[int, str]]) -> list[int]:
+    """Return descendants in child-first order."""
+    children: dict[int, list[int]] = {}
+    for pid, (parent, _command) in processes.items():
+        children.setdefault(parent, []).append(pid)
+
+    ordered: list[int] = []
+
+    def visit(parent: int) -> None:
+        for child in children.get(parent, []):
+            visit(child)
+            ordered.append(child)
+
+    visit(root)
+    return ordered
+
+
+def _stop_process_tree(root: int) -> bool:
+    """Terminate a supervisor and every nested session it created."""
+    processes = _process_snapshot()
+    targets = _descendants(root, processes) + [root]
+    groups: set[int] = set()
+    own_group = os.getpgrp()
+    for pid in targets:
+        try:
+            group = os.getpgid(pid)
+        except OSError:
+            continue
+        if group != own_group:
+            groups.add(group)
+    if not groups:
+        return False
+    for group in groups:
+        try:
+            os.killpg(group, signal.SIGTERM)
+        except OSError:
+            pass
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not any(alive(pid) for pid in targets):
+            return True
+        time.sleep(0.1)
+
+    for group in groups:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except OSError:
+            pass
+    return True
 
 
 def running(role: str) -> int | None:
@@ -75,11 +158,17 @@ def stop(role: str) -> bool:
     pid = running(role)
     if pid is None:
         return False
+    snapshot = _process_snapshot()
+    command = snapshot.get(pid, (0, ""))[1]
+    if command and "supervise_one.py" not in command:
+        # A stale PID file must never turn into permission to kill an unrelated
+        # process after the original supervisor has exited and its PID reused.
+        return False
     try:
-        # Kill the group: the supervisor owns a buzz-acp child, and signalling
-        # only the parent would leave that child holding the relay connection.
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        stopped = _stop_process_tree(pid)
     except OSError:
+        return False
+    if not stopped:
         return False
     pid_file(role).unlink(missing_ok=True)
     return True

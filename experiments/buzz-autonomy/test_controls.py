@@ -29,6 +29,36 @@ class Controls(unittest.TestCase):
         self.assertEqual(mentions, [])
         self.assertIn("@coder", body)
 
+    def test_operator_report_uses_a_human_heading_and_stays_non_delegating(self):
+        import reporting
+
+        body, mentions = reporting.resolve_mentions(
+            "[informe] Resultado para el equipo — Arquitectura\n\n@coder\n\n"
+            "Referencia técnica: opaque-job",
+            "opaque-job",
+        )
+        self.assertEqual(mentions, [])
+        self.assertIn("Resultado para el equipo", body)
+
+    def test_maestro_can_read_buzz_without_mutation(self):
+        # The maestro needs the read-only product surface to inspect a thread or
+        # verify a status when the operator asks "look at this".
+        self.assertIn("buzz", capabilities.PERMISSIONS["maestro"])
+
+    def test_delegate_publishes_operator_status_at_creation(self):
+        # Bind the assertion to the real capability seam: the operator must see
+        # that work was created even if the following model turn is slow or dies.
+        from unittest.mock import patch
+
+        with patch("operator_updates.publish_delegation") as publish:
+            result = capabilities.operate(
+                "maestro", "root", "delegate",
+                {"id": "child", "role": "architect", "prompt": "Inspect the repository"},
+            )
+        self.assertEqual(result, {"job": "child"})
+        publish.assert_called_once_with("maestro", "architect", "child",
+                                        dependencies=None)
+
     def test_unknown_names_stay_literal(self):
         import reporting
 
@@ -86,6 +116,75 @@ class Controls(unittest.TestCase):
         (artifacts / "escape").symlink_to(pilot.ROOT, target_is_directory=True)
         with self.assertRaises(PermissionError):
             pilot.safe_path("escape/config.json")
+
+    def test_non_object_args_get_the_same_actionable_error_as_missing_args(self):
+        # A real run sent {"action": "write", "args": ""} and got back
+        # "string indices must be integers" — nothing to act on, one turn lost.
+        for args in ("", [], None, 3):
+            with self.assertRaises(ValueError) as caught:
+                capabilities.check_call({"action": "write", "args": args})
+            self.assertIn("args", str(caught.exception))
+            self.assertIn(capabilities.CALL_EXAMPLE, str(caught.exception))
+        with self.assertRaises(ValueError) as caught:
+            capabilities.check_call({"action": "write"})
+        self.assertIn("args", str(caught.exception))
+        self.assertIn(capabilities.CALL_EXAMPLE, str(caught.exception))
+
+    def test_batch_steps_with_non_object_args_fail_the_same_way(self):
+        for args in ("", [], None):
+            with self.assertRaises(ValueError) as caught:
+                capabilities.operate("reviewer", "batch-shape", "batch",
+                                     {"steps": [{"action": "read", "args": args}]})
+            self.assertIn("args", str(caught.exception))
+            self.assertIn(capabilities.CALL_EXAMPLE, str(caught.exception))
+
+    def test_list_shows_what_exists_and_every_reader_may_use_it(self):
+        # 106 of 321 tool errors in pilot.db were FileNotFoundError on read:
+        # agents guessed paths because nothing let them look first.
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "artifacts" / "tower" / "deep").mkdir(parents=True)
+            (root / "artifacts" / "tower" / "plan.md").write_text("hola")
+            (root / "artifacts" / "tower" / "deep" / "x.md").write_text("x")
+            with patch.object(pilot, "ROOT", root), patch.object(capabilities, "ROOT", root):
+                shallow = capabilities.list_entries("tower", 1, 50)
+                deep = capabilities.list_entries(".", 3, 50)
+                capped = capabilities.list_entries(".", 3, 1)
+        self.assertEqual([e["path"] for e in shallow["entries"]], ["tower/deep", "tower/plan.md"])
+        self.assertIn("tower/deep/x.md", [e["path"] for e in deep["entries"]])
+        self.assertTrue(capped["truncated"])
+        for role, grants in capabilities.PERMISSIONS.items():
+            if "read" in grants:
+                self.assertIn("list", grants, role)
+
+    def test_a_missing_path_names_its_neighbours_instead_of_errno_2(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "artifacts" / "tower").mkdir(parents=True)
+            (root / "artifacts" / "tower" / "plan-arranque.md").write_text("p")
+            (root / "artifacts" / "tower" / "encargo.md").write_text("e")
+            with patch.object(pilot, "ROOT", root), patch.object(capabilities, "ROOT", root):
+                with self.assertRaises(FileNotFoundError) as caught:
+                    capabilities.operate("coder", "job", "read", {"path": "tower/plan-arranqe.md"})
+        message = str(caught.exception)
+        self.assertIn("plan-arranque.md", message)
+        self.assertIn("list", message)
+        self.assertNotIn("Errno", message)
+
+    def test_missing_required_keys_are_named_instead_of_a_bare_key_error(self):
+        (pilot.ROOT / "artifacts").mkdir()
+        cases = [
+            ("reviewer", "read", {}, "path"),
+            ("designer", "write", {"content": "x"}, "path"),
+            ("designer", "write", {"path": "x.html"}, "content"),
+        ]
+        for role, action, args, key in cases:
+            with self.assertRaises(ValueError) as caught:
+                capabilities.operate(role, "keys", action, args)
+            self.assertIn(key, str(caught.exception))
+            self.assertIn(capabilities.CALL_EXAMPLE, str(caught.exception))
 
     def test_large_read_reports_and_recovers_omitted_tail(self):
         artifacts = pilot.ROOT / "artifacts"; artifacts.mkdir()

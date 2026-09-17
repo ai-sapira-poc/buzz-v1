@@ -79,6 +79,16 @@ def database() -> sqlite3.Connection:
         seq INTEGER PRIMARY KEY, job TEXT, role TEXT, action TEXT, data TEXT, at REAL);
       CREATE TABLE IF NOT EXISTS job_dependencies (
         job TEXT, prerequisite TEXT, PRIMARY KEY(job, prerequisite));
+      -- A prerequisite names the job we expected to deliver, but the ladder
+      -- retries under a new key, so the deliverable routinely arrives from a
+      -- different job than the one the graph points at. The old options were
+      -- both dishonest: mark the failed job `done`, or leave the dependent
+      -- blocked while its input sits on disk. A substitution records which job
+      -- actually satisfied the edge and why, and leaves the failure failed.
+      CREATE TABLE IF NOT EXISTS dependency_substitutions (
+        job TEXT, prerequisite TEXT, substitute TEXT NOT NULL,
+        rationale TEXT NOT NULL, at REAL NOT NULL,
+        PRIMARY KEY(job, prerequisite));
       CREATE TABLE IF NOT EXISTS inbound (
         role TEXT, event_id TEXT, job TEXT, status TEXT, created REAL,
         PRIMARY KEY(role,event_id));
@@ -147,6 +157,47 @@ def enqueue(role: str, prompt: str, key: str, parent: str | None = None, depends
                    (key, role, prompt, parent, time.time()))
         db.executemany("INSERT OR IGNORE INTO job_dependencies VALUES(?,?)", [(key, prerequisite) for prerequisite in dependencies])
     return key
+
+
+UNMET = """(p.status IS NULL OR p.status!='done') AND NOT EXISTS (
+        SELECT 1 FROM dependency_substitutions s JOIN jobs q ON q.id=s.substitute
+        WHERE s.job=d.job AND s.prerequisite=d.prerequisite AND q.status='done')"""
+
+
+def substitute_prerequisite(job: str, prerequisite: str, substitute: str,
+                            rationale: str) -> dict:
+    """Record that another job's deliverable satisfies this edge.
+
+    The designer's screen spec arrived from `tower-diseno-c5ab328d-r2` after
+    `diseno-tower-slice1-screen` had already failed, so the coder sat queued
+    behind a failure while its input existed on disk. Forcing the failed job to
+    `done` would have erased the evidence of what went wrong; this keeps the
+    failure and names what replaced it.
+
+    The substitute must itself be `done` — a substitution cannot launder an
+    unfinished job — and the rationale is mandatory, because the whole point is
+    that the next reader can judge whether the swap was legitimate.
+    """
+    if not rationale or not rationale.strip():
+        raise ValueError("A substitution without a stated reason is not reviewable")
+    if substitute == prerequisite:
+        raise ValueError("A prerequisite cannot substitute for itself")
+    with database() as db:
+        state = db.execute("SELECT status FROM jobs WHERE id=?", (substitute,)).fetchone()
+        if not state:
+            raise ValueError(f"Unknown substitute job {substitute!r}")
+        if state["status"] != "done":
+            raise ValueError(
+                f"{substitute!r} is {state['status']}, not done; a substitution "
+                "cannot make an unfinished job count as a delivered one")
+        if not db.execute("SELECT 1 FROM job_dependencies WHERE job=? AND prerequisite=?",
+                          (job, prerequisite)).fetchone():
+            raise ValueError(f"{job!r} does not depend on {prerequisite!r}")
+        db.execute("INSERT OR REPLACE INTO dependency_substitutions VALUES(?,?,?,?,?)",
+                   (job, prerequisite, substitute, rationale.strip(), time.time()))
+    event(job, "control-plane", "dependency_substituted",
+          {"prerequisite": prerequisite, "substitute": substitute, "rationale": rationale.strip()})
+    return {"job": job, "prerequisite": prerequisite, "substitute": substitute}
 
 
 def safe_path(relative: str, folder: str = "artifacts") -> Path:

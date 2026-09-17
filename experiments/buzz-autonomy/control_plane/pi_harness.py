@@ -17,15 +17,21 @@ constraint is a request and a flag is a guarantee:
 """
 import json
 import os
+from pathlib import Path
+import signal
 import shutil
 import subprocess
+import threading
+import time
+from collections.abc import Callable
 
-from pilot import MODEL
+from pilot import MODEL, ROOT
 
 from . import telemetry
 from .roster import CONTRACTS, PI
 
 PI_BIN = shutil.which("pi") or os.path.expanduser("~/.nvm/versions/node/v24.15.0/bin/pi")
+PI_COMMAND_GUARD = Path(__file__).with_name("pi_command_guard.ts")
 
 # Read-only roles keep `bash` because inspecting a repository means running
 # `git log`, `cargo check` and the test suite. What they lose is the ability to
@@ -37,12 +43,115 @@ TOOLS = {
     "coder": ("read", "grep", "find", "ls", "bash", "edit", "write"),
 }
 
-DEFAULT_TIMEOUT = 900
+DEFAULT_TIMEOUT = None
+MAX_CAPTURE_BYTES = int(os.environ.get("BUZZ_PI_MAX_CAPTURE_BYTES", str(8 * 1024 * 1024)))
+POLL_SECONDS = 1
 
 
-def run(role: str, prompt: str, cwd: str, timeout: int = DEFAULT_TIMEOUT,
-        job: str | None = None) -> dict:
-    """Execute one bounded pi turn for a code-plane role.
+def _drain(stream, path: Path, stats: dict) -> None:
+    """Drain a child pipe without retaining unbounded model output in memory."""
+    total = 0
+    try:
+        with path.open("wb") as output:
+            while True:
+                chunk = stream.read(8192)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total <= MAX_CAPTURE_BYTES:
+                    output.write(chunk)
+                elif total - len(chunk) < MAX_CAPTURE_BYTES:
+                    output.write(chunk[:MAX_CAPTURE_BYTES - (total - len(chunk))])
+    finally:
+        stats["bytes"] = total
+        stats["truncated"] = total > MAX_CAPTURE_BYTES
+
+
+def _terminate_tree(process: subprocess.Popen) -> None:
+    """Stop the whole Pi process group, including a child tool still running."""
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        process.wait(timeout=5)
+
+
+def _execute(command: list[str], cwd: str, env: dict, timeout: int | None,
+             checkpoint_path: Path, cancel_path: Path | None,
+             cancel_check: Callable[[], bool] | None = None) -> subprocess.CompletedProcess:
+    """Run Pi with a persistent bounded stream and an explicit cancellation path.
+
+    `timeout=None` is intentional: a slow model is valid work. When a timeout
+    is supplied for a diagnostic run, the process group is terminated rather
+    than only the direct child, which avoids the orphan observed in the first
+    Tower launch.
+    """
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    stderr_path = checkpoint_path.with_suffix(".stderr.log")
+    process = subprocess.Popen(
+        command, cwd=cwd, text=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True, env=env,
+    )
+    stdout_stats, stderr_stats = {}, {}
+    stdout_thread = threading.Thread(
+        target=_drain, args=(process.stdout, checkpoint_path, stdout_stats), daemon=True
+    )
+    stderr_thread = threading.Thread(
+        target=_drain, args=(process.stderr, stderr_path, stderr_stats), daemon=True
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    try:
+        while process.poll() is None:
+            if (cancel_path and cancel_path.exists()) or (cancel_check and cancel_check()):
+                _terminate_tree(process)
+                source = cancel_path if cancel_path and cancel_path.exists() else "job state"
+                raise RuntimeError(f"pi run cancelled by {source}")
+            if deadline is not None and time.monotonic() >= deadline:
+                _terminate_tree(process)
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                process.wait(timeout=POLL_SECONDS)
+            except subprocess.TimeoutExpired:
+                continue
+    finally:
+        if process.poll() is None:
+            _terminate_tree(process)
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        # Popen owns the pipe file descriptors. The drainers have finished, so
+        # close them here even on cancellation/timeout; otherwise long-lived
+        # launchers accumulate a descriptor per attempt and eventually fail in
+        # a way that looks like model slowness.
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+    stdout = checkpoint_path.read_text(encoding="utf-8", errors="replace")
+    stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
+    if stdout_stats.get("truncated"):
+        stdout += "\n[pi output truncated at configured capture limit]\n"
+    if stderr_stats.get("truncated"):
+        stderr += "\n[pi stderr truncated at configured capture limit]\n"
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def run(role: str, prompt: str, cwd: str, timeout: int | None = DEFAULT_TIMEOUT,
+        job: str | None = None, checkpoint_path: str | Path | None = None,
+        cancel_path: str | Path | None = None,
+        cancel_check: Callable[[], bool] | None = None) -> dict:
+    """Execute one long-running pi turn for a code-plane role.
 
     Returns the parsed run record. A non-zero exit or unparseable output is
     raised rather than summarized: a code agent whose result could not be read
@@ -61,6 +170,9 @@ def run(role: str, prompt: str, cwd: str, timeout: int = DEFAULT_TIMEOUT,
     # `defaultModel`. A settings file outside this repo deciding which model our
     # agents use is a dependency nobody would think to check when a run looks
     # wrong, and it drifts silently.
+    session_dir = ROOT / "runs" / "pi-sessions"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    session_id = job or f"{role}-{time.time_ns()}"
     command = [
         PI_BIN,
         "-p", prompt,
@@ -68,12 +180,18 @@ def run(role: str, prompt: str, cwd: str, timeout: int = DEFAULT_TIMEOUT,
         "--mode", "json",
         "--model", MODEL,
         "--tools", ",".join(TOOLS[role]),
-        "--no-session",
+        "--extension", str(PI_COMMAND_GUARD),
+        "--session-id", session_id,
+        "--session-dir", str(session_dir),
     ]
+    checkpoint = Path(checkpoint_path) if checkpoint_path else (
+        ROOT / "runs" / "pi-checkpoints" / f"{session_id}.jsonl"
+    )
+    cancellation = Path(cancel_path) if cancel_path else None
     with telemetry.turn(role, harness="pi", model=MODEL) as span:
-        result = subprocess.run(
-            command, cwd=cwd, text=True, capture_output=True, timeout=timeout,
-            env={**os.environ, "PI_ROLE": role},
+        result = _execute(
+            command, cwd, {**os.environ, "PI_ROLE": role}, timeout,
+            checkpoint, cancellation, cancel_check,
         )
         record = _finish(role, result)
         # pi carries no OpenTelemetry of its own, so the dispatcher records the

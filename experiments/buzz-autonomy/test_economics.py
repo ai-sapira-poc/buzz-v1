@@ -169,7 +169,11 @@ class CodeMode(unittest.TestCase):
         ]})
         self.assertFalse(out["results"][0]["ok"])
         self.assertEqual(out["results"][0]["error"], "PermissionError")
-        self.assertEqual(len(out["results"]), 1, "una denegación detiene el batch")
+        # The guarantee is that the batch grants no permission its steps lack —
+        # the denied step did not run. The *other* steps still do: a refusal in
+        # step 0 is not a reason to discard a legal read in step 1.
+        self.assertEqual(len(out["results"]), 2)
+        self.assertTrue(out["results"][1]["ok"])
 
     def test_a_batch_cannot_nest_into_a_loop(self):
         with self.assertRaises(PermissionError):
@@ -188,7 +192,13 @@ class CodeMode(unittest.TestCase):
         ]})
         self.assertTrue(out["results"][0]["ok"])
         self.assertFalse(out["results"][1]["ok"])
-        self.assertEqual(len(out["results"]), 2, "debe parar, no seguir a ciegas")
+        # Steps in a batch are independent by contract, so a failure in one
+        # says nothing about the next. Stopping made batching *more* dangerous
+        # than the sequential calls it replaces — exactly what this test's
+        # rationale warns against: tower-research-cb003434 asked for 70 steps,
+        # ran 43, and lost four whole turns to a denied host sitting in step 0.
+        self.assertEqual(len(out["results"]), 3, "los pasos posteriores siguen corriendo")
+        self.assertTrue(out["results"][2]["ok"])
 
     def test_a_failed_step_is_named_in_the_event_log(self):
         # A count alone ("failed: 1") makes batch the one operation whose errors

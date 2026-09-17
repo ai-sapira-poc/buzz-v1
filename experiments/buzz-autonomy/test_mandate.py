@@ -58,6 +58,17 @@ class MandateTests(unittest.TestCase):
             capabilities.operate("maestro", mandate.synthesis_id("native-test"), "delegate",
                                  {"id": "unexpected", "role": "coder", "prompt": "more work"})
 
+    def test_control_plane_code_jobs_use_pi_instead_of_artifact_worker(self):
+        # Architect, design and implementation jobs need the repository. Sending
+        # them through worker.py gives them only the pilot artifact scope and
+        # turns valid paths such as desktop/src into false missing-file errors.
+        pilot.enqueue("architect", "inspect the repository", "code-job")
+        with patch.object(supervisor, "_execute_pi", return_value=True) as execute_pi, \
+                patch.object(supervisor.subprocess, "Popen") as popen:
+            self.assertTrue(supervisor.execute("code-job"))
+        execute_pi.assert_called_once_with("code-job", "arquitecto")
+        popen.assert_not_called()
+
     def test_pause_and_unknown_native_parent_do_not_execute(self):
         pilot.enqueue("coder", "create", "build", parent="native-test")
         (pilot.ROOT / "PAUSED").touch()

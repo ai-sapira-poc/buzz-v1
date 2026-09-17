@@ -27,6 +27,7 @@ import control_plane  # noqa: F401  (import for its side effect, deliberately)
 
 from pilot import ROOT, REPO, config
 from control_plane.roster import BUSINESS_ROLES, CONTRACTS, HERMES
+from control_plane.runtime_policy import acp_args, wait_timeout
 
 CONTROL_PLANE_CHANNEL = "0af36b11-a89b-4071-8388-6a985ed2aa7d"
 
@@ -57,7 +58,8 @@ def subscribe_mode(role: str) -> str:
     return "mentions"
 
 
-def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, duration: int = 900) -> int:
+def run(role: str, channel: str = CONTROL_PLANE_CHANNEL,
+        duration: int | None = None) -> int:
     contract = CONTRACTS[role]
     if contract["harness"] != HERMES:
         raise ValueError(f"{role!r} runs on pi; use control_plane.pi_harness instead")
@@ -117,13 +119,12 @@ def run(role: str, channel: str = CONTROL_PLANE_CHANNEL, duration: int = 900) ->
     with log.open("a") as output:
         process = subprocess.Popen(
             [str(REPO / "target/debug/buzz-acp"),
-             "--idle-timeout", "300", "--max-turn-duration", "600",
-             "--exit-after-inactivity", str(duration), "--permission-mode", "dont-ask"],
+             *acp_args(duration), "--permission-mode", "dont-ask"],
             env=env, stdout=output, stderr=output, start_new_session=True,
         )
         print(f"{role} ({contract['identity']}) pid={process.pid} log={log}", flush=True)
         try:
-            return process.wait(timeout=duration + 120)
+            return process.wait(timeout=wait_timeout(duration))
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -138,6 +139,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("role", choices=BUSINESS_ROLES)
     parser.add_argument("--channel", default=CONTROL_PLANE_CHANNEL)
-    parser.add_argument("--duration", type=int, default=900)
+    parser.add_argument("--duration", type=int, default=None,
+                        help="optional inactivity lifetime; omit for a long-running agent")
     args = parser.parse_args()
     raise SystemExit(run(args.role, args.channel, args.duration))

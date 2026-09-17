@@ -1,15 +1,263 @@
 """Bounded local queue runner; no permanent cron, deployment or background service."""
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import signal
 import subprocess
 import time
+from pathlib import Path
 
-from pilot import ROOT, REPO, PYTHON, database, enqueue, event
+from pilot import ROOT, REPO, PYTHON, UNMET, database, enqueue, event, write_json
+
+# A running Pi job proves it is alive with `assignment_heartbeat` events every
+# BUZZ_HEARTBEAT_INTERVAL seconds. When the supervisor process itself dies
+# (kill, crash, reboot) the row stays `running` with no one behind it, and
+# nothing else in this file ever looks at a `running` row again. The lease TTL
+# is the silence after which that row is treated as abandoned. It is measured
+# in missed heartbeats, not in model time, so a slow-but-alive turn is never
+# affected: its heartbeats keep arriving.
+LEASE_TTL = int(os.environ.get("BUZZ_JOB_LEASE_TTL", "120"))
+if LEASE_TTL <= int(os.environ.get("BUZZ_HEARTBEAT_INTERVAL", "30")):
+    raise ValueError("BUZZ_JOB_LEASE_TTL must be greater than BUZZ_HEARTBEAT_INTERVAL")
+MAX_ATTEMPTS = 3
 
 
-def execute(job, timeout=180, runner=None):
+def _pi_role_for(job: str) -> str | None:
+    """Return the control-plane role when a queued job needs the Pi harness."""
+    try:
+        from control_plane.roster import CONTRACTS, IDENTITY_TO_ROLE, PI
+
+        with database() as db:
+            row = db.execute("SELECT role FROM jobs WHERE id=?", (job,)).fetchone()
+        role = IDENTITY_TO_ROLE.get(row["role"]) if row else None
+        return role if role and CONTRACTS[role]["harness"] == PI else None
+    except (ImportError, KeyError):
+        # Legacy pilot jobs have no control-plane contract and continue through
+        # the Hermes worker below.
+        return None
+
+
+def _claim_pi(job: str) -> tuple[dict, str]:
+    """Claim one delegated Pi job using the same dependency gates as Hermes."""
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM jobs WHERE id=?", (job,)).fetchone()
+        if not row or row["status"] != "queued":
+            raise ValueError("Pi job not queued")
+        pending = db.execute(
+            f"""SELECT 1 FROM job_dependencies d LEFT JOIN jobs p ON p.id=d.prerequisite
+               WHERE d.job=? AND {UNMET} LIMIT 1""",
+            (job,),
+        ).fetchone()
+        if pending:
+            raise RuntimeError("Prerequisite results are not ready")
+        parent_pending = db.execute(
+            """SELECT 1 FROM jobs WHERE id=? AND status!='done'
+               UNION ALL SELECT 1 FROM inbound WHERE job=? AND status!='done' LIMIT 1""",
+            (row["parent"], row["parent"]),
+        ).fetchone()
+        if parent_pending:
+            raise RuntimeError("Parent orchestration has not completed")
+        if (ROOT / "PAUSED").exists():
+            raise RuntimeError("Pilot paused")
+        attempt = row["attempts"] + 1
+        db.execute(
+            "UPDATE jobs SET status='running',started=?,attempts=? WHERE id=?",
+            (time.time(), attempt, job),
+        )
+        return dict(row), str(attempt)
+
+
+@contextmanager
+def _pi_heartbeats(job: str, role: str, trace_id: str | None = None,
+                   operator_role: str | None = None):
+    """Keep a local lease alive and sample long work into the community."""
+    import threading
+
+    interval = int(os.environ.get("BUZZ_HEARTBEAT_INTERVAL", "30"))
+    if interval <= 0:
+        raise ValueError("BUZZ_HEARTBEAT_INTERVAL must be positive")
+    operator_interval = int(os.environ.get("BUZZ_OPERATOR_HEARTBEAT_INTERVAL", "300"))
+    if operator_interval <= 0:
+        raise ValueError("BUZZ_OPERATOR_HEARTBEAT_INTERVAL must be positive")
+    stopped = threading.Event()
+    started = time.monotonic()
+    next_operator_signal = operator_interval
+    beat = 0
+
+    def emit() -> None:
+        nonlocal beat, next_operator_signal
+        while not stopped.wait(interval):
+            beat += 1
+            elapsed = int(time.monotonic() - started)
+            event(job, role, "assignment_heartbeat", {
+                "trace_id": trace_id, "interval_seconds": interval,
+                "elapsed_seconds": elapsed, "beat": beat,
+            })
+            if operator_role and elapsed >= next_operator_signal:
+                from operator_updates import publish_update
+
+                publish_update(
+                    role, operator_role, job, "running",
+                    detail=f"latido {beat}; {elapsed}s desde el inicio",
+                    key=f"pi-running-{beat}",
+                )
+                next_operator_signal += operator_interval
+
+    thread = threading.Thread(target=emit, name=f"pilot-pi-heartbeat-{job}", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join(timeout=2)
+
+
+def _execute_pi(job: str, role: str) -> bool:
+    """Run a delegated code role in Pi and preserve its handoff."""
+    from control_plane import pi_harness, telemetry
+    from control_plane.tower_project import CHANNEL
+    from evidence import handoff
+    from operator_updates import publish_update
+    from reporting import publish
+
+    row, attempt = _claim_pi(job)
+    identity = row["role"]
+    checkpoint = ROOT / "runs" / "pi-checkpoints" / f"{job}.jsonl"
+    cancel_path = ROOT / "runs" / "cancel" / f"{job}.cancel"
+    trace_id = None
+    try:
+        with telemetry.assignment(job, role) as span:
+            trace_id = telemetry.trace_id_of(span)
+            event(job, identity, "trace_opened", {
+                "trace_id": trace_id, "attempt": int(attempt), "channel": CHANNEL,
+            })
+            publish_update(identity, role, job, "started", key="pi-started")
+            with _pi_heartbeats(job, identity, trace_id, role):
+                record = pi_harness.run(
+                    role,
+                    row["prompt"] + "\n\n" + handoff(job),
+                    str(REPO),
+                    timeout=None,
+                    job=job,
+                    checkpoint_path=checkpoint,
+                    cancel_path=cancel_path,
+                    cancel_check=lambda: _job_cancelled(job),
+                )
+            telemetry.flush()
+        final = record["final"]
+        artifact = ROOT / "artifacts" / "tower" / f"{job}.md"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(final, encoding="utf-8")
+        write_json(ROOT / "runs" / (job + ".json"), {
+            "job": job, "role": identity, "attempt": int(attempt),
+            **{key: value for key, value in record.items() if key != "final"},
+        })
+        receipt = publish(identity, job, final)
+        event(job, identity, "handoff_published", {
+            "event_id": receipt.get("event_id") if isinstance(receipt, dict) else None,
+            "trace_id": record.get("trace_id") or trace_id,
+            "artifact": str(artifact),
+        })
+        with database() as db:
+            changed = db.execute(
+                "UPDATE jobs SET status='done',result=? WHERE id=? AND status='running'",
+                (final[:12000], job),
+            ).rowcount
+        if changed != 1:
+            raise RuntimeError("Pi job changed state before completion")
+        event(job, identity, "assignment_finished", {
+            "attempt": int(attempt), "trace_id": record.get("trace_id") or trace_id,
+        })
+        publish_update(identity, role, job, "done", key="pi-done")
+        return True
+    except Exception as error:
+        telemetry.flush()
+        cancelled = _job_cancelled(job)
+        with database() as db:
+            db.execute(
+                "UPDATE jobs SET status=?,result=? WHERE id=? AND status='running'",
+                ("cancelled" if cancelled else "failed",
+                 f"{type(error).__name__}: {error}"[:12000], job),
+            )
+        event(job, identity, "stopped", {
+            "reason": "cancelled" if cancelled else "failed",
+            "error": f"{type(error).__name__}: {error}"[:500],
+        })
+        publish_update(identity, role, job, "cancelled" if cancelled else "failed",
+                       detail=str(error), key="pi-cancelled" if cancelled else "pi-failed")
+        return False
+
+
+def _job_cancelled(job: str) -> bool:
+    with database() as db:
+        row = db.execute("SELECT status FROM jobs WHERE id=?", (job,)).fetchone()
+    return bool(row and row["status"] == "cancelled")
+
+
+def recover_stale_pi_leases(now: float | None = None) -> list[str]:
+    """Requeue Pi jobs left `running` by a supervisor that is no longer there.
+
+    The checkpoint and session on disk are untouched: the next attempt runs
+    with the same `--session-id`, so pi resumes rather than starts over. A job
+    that has already used its attempts is marked failed instead, so the loss
+    is visible rather than a row that looks busy forever.
+    """
+    now = time.time() if now is None else now
+    with database() as db:
+        rows = db.execute(
+            """SELECT j.id, j.started, j.attempts,
+                      (SELECT max(at) FROM events e
+                       WHERE e.job=j.id AND e.action='assignment_heartbeat') AS heartbeat
+               FROM jobs j WHERE j.status='running'"""
+        ).fetchall()
+    recovered = []
+    for row in rows:
+        if _pi_role_for(row["id"]) is None:
+            continue
+        age = now - max(row["started"] or 0, row["heartbeat"] or 0)
+        if age <= LEASE_TTL:
+            continue
+        requeue = row["attempts"] < MAX_ATTEMPTS
+        with database() as db:
+            changed = db.execute(
+                "UPDATE jobs SET status=?,started=NULL,result=? WHERE id=? AND status='running'",
+                ("queued" if requeue else "failed",
+                 f"stale lease recovered after {age:.0f}s without heartbeat; "
+                 "checkpoint and session kept", row["id"]),
+            ).rowcount
+        if changed:
+            event(row["id"], "supervisor", "stale_recovered", {
+                "lease_ttl_seconds": LEASE_TTL, "silent_seconds": int(age),
+                "attempts": row["attempts"], "requeued": requeue,
+            })
+            recovered.append(row["id"])
+    return recovered
+
+
+def execute(job, timeout=None, runner=None):
+    """Run a job until completion or explicit cancellation.
+
+    A control-plane code role is routed to Pi, where its repository scope and
+    persistent session are real. Other jobs retain the Hermes worker boundary.
+    A missing timeout is deliberate for quality-first work. Both paths own
+    their process tree and preserve a durable result.
+    """
+    if runner is None:
+        role = _pi_role_for(job)
+        if role is not None:
+            return _execute_pi(job, role)
+    return _execute_worker(job, timeout=timeout, runner=runner)
+
+
+def _execute_worker(job, timeout=None, runner=None):
+    """Run a job until completion or explicit cancellation.
+
+    A missing timeout is deliberate for quality-first work. The supervisor
+    still polls for pause/cancel and always owns the process group, so removing
+    the wall-clock cap does not remove operational control.
+    """
     logs = ROOT / "logs"; logs.mkdir(parents=True, exist_ok=True)
     with (logs / (job + ".log")).open("a") as output:
         process = subprocess.Popen(["rtk", "proxy", str(PYTHON), str(runner or REPO / "experiments/buzz-autonomy/worker.py"), job], stdout=output, stderr=output, start_new_session=True)
@@ -18,7 +266,10 @@ def execute(job, timeout=180, runner=None):
             while process.poll() is None:
                 with database() as db:
                     state = db.execute("SELECT status FROM jobs WHERE id=?", (job,)).fetchone()
-                reason = "cancelled" if state and state["status"] == "cancelled" else "paused" if (ROOT / "PAUSED").exists() else "timeout" if time.monotonic() - started > timeout else None
+                reason = ("cancelled" if state and state["status"] == "cancelled"
+                          else "paused" if (ROOT / "PAUSED").exists()
+                          else "timeout" if timeout is not None and
+                          time.monotonic() - started > timeout else None)
                 if reason:
                     os.killpg(process.pid, signal.SIGTERM)
                     try:
@@ -47,6 +298,7 @@ def execute(job, timeout=180, runner=None):
 def tick(limit, parent=None):
     if not 1 <= limit <= 20:
         raise ValueError("A tick budget is 1..20 conversations")
+    recover_stale_pi_leases()
     completed = []
     for _ in range(limit):
         if (ROOT / "PAUSED").exists():

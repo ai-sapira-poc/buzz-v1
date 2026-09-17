@@ -75,13 +75,27 @@ try {
         if (d.prop === 'src' && !/^url\(["']?data:font\/woff2;base64,[a-zA-Z0-9+/=]+["']?\)(?: format\(["']woff2["']\))?$/.test(d.value)) throw Error('Embed the self-hosted Sapira font');
         return;
       }
-      const visual = /color|background|shadow|radius|font|^(fill|stroke|border|outline)(-|$)|^(padding|margin|gap)(-|$)/.test(d.prop);
+      // Table and background *mechanics* share a prefix with palette
+      // properties but carry no colour: nothing in the token set can satisfy
+      // `border-collapse: collapse`. Job diseno-tower-slice1-screen was told
+      // "no hay token; no la uses" for exactly that and spent three of its
+      // last six turns unable to comply. An unsatisfiable rejection is the
+      // costliest kind, so these are out of scope for the gate.
+      const mechanics = /^(?:border-(?:collapse|spacing|image(?:-|$))|background-(?:size|repeat|position|clip|origin|attachment|blend-mode))/.test(d.prop);
+      const visual = !mechanics && /color|background|shadow|radius|font|^(fill|stroke|border|outline)(-|$)|^(padding|margin|gap)(-|$)/.test(d.prop);
       if (visual) {
         // Geometric border widths and zero/auto layout remain legal. Visual
         // values must otherwise be canonical vars, not literals or fallbacks.
-        const rest = d.value.replace(/var\(--[\w-]+\)/g, '').replace(/\b(?:none|inherit|transparent|currentColor|solid|dashed|auto|normal)\b/g, '').replace(/\b0(?:px|rem)?\b/g, '').trim();
+        let rest = d.value.replace(/var\(--[\w-]+\)/g, '').replace(/\b(?:none|inherit|transparent|currentColor|solid|dashed|auto|normal)\b/g, '').replace(/\b0(?:px|rem)?\b/g, '').trim();
         const geometry = /^(?:border|outline)(?:-(?:top|right|bottom|left|width|offset))?$/.test(d.prop);
         const fontSize = d.prop === 'font-size';
+        // A shadow is offsets + blur + spread + colour. Only the colour is a
+        // palette decision; the lengths are geometry exactly like a border
+        // width. Same run: `0 -1px 0 0 var(--color-border-subtle)` was
+        // rejected although its only colour is a Sapira token.
+        if (/shadow/.test(d.prop)) {
+          rest = rest.replace(/\binset\b|,|-?\d*\.?\d+(?:px|rem)/g, '').trim();
+        }
         if (rest && !(geometry && /^\d+(?:px|rem)$/.test(rest)) && !(fontSize && /^\d*\.?\d+rem$/.test(rest))) {
           problems.push(advise(d.prop, d.value, known));
         }

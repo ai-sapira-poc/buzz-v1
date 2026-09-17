@@ -11,7 +11,8 @@ goal**. So each failure is classified and answered with a *different* approach,
 never the same one again:
 
     budget exhausted   → split the work; each part gets a full budget
-    timeout            → same, plus a longer window
+    timeout            → same approach change; no wall cap unless the operator
+                         explicitly sets BUZZ_PILOT_HARD_TIMEOUT
     blocked path       → hand it to a teammate whose access differs
     empty answer       → restate the assignment more concretely
     denied capability  → stop and escalate; no ladder rung fixes a permission
@@ -27,6 +28,8 @@ the same thing until the money runs out.
 import argparse
 import hashlib
 import json
+import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -36,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import control_plane  # noqa: F401  (pins BUZZ_PILOT_HOME before pilot loads)
 
 from pilot import REPO, ROOT, database, event
-from control_plane.roster import CONTRACTS, PI
+from control_plane.roster import CONTRACTS, PI, turn_budget
 from control_plane.tower_project import ASSIGNMENTS, CHANNEL, brief_for
 
 # Ordered widest-to-narrowest: the first rung that matches the failure wins.
@@ -63,7 +66,72 @@ def classify(outcome: dict) -> str:
     return "unknown"
 
 
-def approach(role: str, obstacle: str, attempt: int, brief: str) -> dict:
+HARNESS_REJECTION = re.compile(
+    # Every rejection class the traces show costing a turn without advancing
+    # the work. Missing one makes the autopsy lie in the safe direction:
+    # tower-diseno-c5ab328d scored 1/17 while six of its turns went to the
+    # design-adapter refusal and the probes it wrote to decode it.
+    r"Sapira CSS gate|foundation_block|mal formada|string indices must be integers"
+    r"|Unknown Sapira token|supported design adapter|outside public research allowlist"
+    r"|necesita \[|Replacement requires exactly one"
+)
+
+
+# Measured, not guessed: tower-diseno-c5ab328d spent 13.4 minutes on 17 turns
+# and its retry 7.4 on 8 — about 47 s per turn on this model, which is slow by
+# design and good because it iterates. A rung that buys turns without buying
+# the wall clock to spend them just relabels the same death "timeout": 32 turns
+# inside a 900 s window is a job that cannot finish.
+SECONDS_PER_TURN = 75
+
+
+def fits(budget: int, window: int) -> int:
+    """The window a budget of this size actually needs."""
+    return max(window, budget * SECONDS_PER_TURN)
+
+
+def diagnose_budget(previous_job: str | None) -> dict:
+    """Read the exhausted attempt's trace and say where the turns actually went.
+
+    `diseno-tower-slice1-screen` (16/16) had its artifact through the gate by
+    turn 8; six of the remaining turns were CSS-gate rejections and two were
+    malformed calls. The budget rung answered by shrinking the *scope* — which
+    is how `tower-diseno-min` ended up delivering a single row — when the scope
+    was never the problem. A recovery that does not read the trace prescribes
+    for the wrong disease.
+    """
+    if not previous_job:
+        return {}
+    path = ROOT / "runs" / (previous_job + ".json")
+    if not path.exists():
+        return {}
+    try:
+        messages = json.loads(path.read_text()).get("messages") or []
+    except (OSError, ValueError):
+        return {}
+    model_turns = sum(1 for m in messages if m.get("role") == "assistant")
+    harness_turns, validated = 0, []
+    for m in messages:
+        if m.get("role") != "tool":
+            continue
+        content = str(m.get("content") or "")
+        if HARNESS_REJECTION.search(content):
+            harness_turns += 1
+        elif '"design_foundation"' in content:
+            try:
+                receipt = json.loads(content)
+                validated.append(receipt.get("path"))
+            except ValueError:
+                pass
+    return {"model_turns": model_turns, "harness_turns": harness_turns,
+            # `_gate-probe.html` and friends are the agent testing the gate,
+            # not deliverables; pointing the retry at them would mislead it.
+            "validated": [p for p in dict.fromkeys(validated)
+                          if p and not Path(p).name.startswith("_")]}
+
+
+def approach(role: str, obstacle: str, attempt: int, brief: str,
+             previous_job: str | None = None) -> dict:
     """The next thing to try, given what just stopped us.
 
     Returns the parameters of a genuinely different attempt. Returning the same
@@ -71,6 +139,35 @@ def approach(role: str, obstacle: str, attempt: int, brief: str) -> dict:
     """
     if obstacle == "denied":
         return {}  # no rung fixes a permission; escalate instead
+
+    if obstacle == "budget":
+        found = diagnose_budget(previous_job)
+        turns, lost = found.get("model_turns", 0), found.get("harness_turns", 0)
+        # When a third or more of the turns died on gate rejections or
+        # malformed calls, the scope was fine and the dialect was the problem.
+        # Shrinking the work would throw away what already passed.
+        if turns and lost * 3 >= turns:
+            resume = (
+                "Ya pasaron el gate y siguen en disco: " + ", ".join(found["validated"])
+                + ". Continúa desde ellos con write old_text/new_text; no los reescribas."
+                if found.get("validated") else
+                "Ningún artefacto pasó el gate; escribe el documento una sola vez."
+            )
+            return {
+                "brief": (
+                    brief
+                    + "\n\n--- AJUSTE DEL ENCARGO (intento "
+                    + str(attempt)
+                    + ") ---\n"
+                    f"El intento anterior perdió {lost} de {turns} turnos en rechazos "
+                    "del gate de diseño o llamadas mal formadas, no en alcance. "
+                    "MANTÉN el alcance completo del encargo. " + resume + " Lee el "
+                    "dialecto del gate en tu instrucción antes de escribir CSS."
+                ),
+                "budget": 24,
+                "window": 900,
+                "diagnosis": found,
+            }
 
     if obstacle in ("budget", "timeout"):
         return {
@@ -196,11 +293,23 @@ def evidence_for(job: str) -> dict:
             "blocked_calls": blocked, "denied": denied, "final": final}
 
 
+def hard_timeout() -> int | None:
+    """Return an explicitly requested wall cap; slow quality work has none."""
+    raw = os.environ.get("BUZZ_PILOT_HARD_TIMEOUT")
+    if raw is None:
+        return None
+    value = int(raw)
+    if value <= 0:
+        raise ValueError("BUZZ_PILOT_HARD_TIMEOUT must be positive")
+    return value
+
+
 def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> dict:
     """Run one attempt on whichever harness this role belongs to."""
-    import os
-
     contract = CONTRACTS[role]
+    # `window` remains part of the ladder's evidence and dry-run output. It is
+    # not a quality cap: only an explicit operator setting may kill a long run.
+    window = hard_timeout()
     if contract["harness"] == PI:
         from control_plane.pi_harness import run as run_pi
 
@@ -220,7 +329,14 @@ def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> d
         return {"status": "done" if result.get("final") else "failed", **result}
 
     previous = os.environ.get("BUZZ_TURN_BUDGET")
+    previous_channel = os.environ.get("BUZZ_PUBLISH_CHANNEL")
     os.environ["BUZZ_TURN_BUDGET"] = str(budget)
+    # The report belongs in the project's channel. `reporting.target_channel`
+    # falls back to the community default when this is unset, so every
+    # dispatcher-driven report landed in `control-plane` while the whole team
+    # was working in `tower-control` — the work was done and invisible where
+    # anyone was looking for it.
+    os.environ["BUZZ_PUBLISH_CHANNEL"] = CHANNEL
     try:
         from pilot import enqueue
         import supervisor
@@ -244,6 +360,10 @@ def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> d
             os.environ.pop("BUZZ_TURN_BUDGET", None)
         else:
             os.environ["BUZZ_TURN_BUDGET"] = previous
+        if previous_channel is None:
+            os.environ.pop("BUZZ_PUBLISH_CHANNEL", None)
+        else:
+            os.environ["BUZZ_PUBLISH_CHANNEL"] = previous_channel
     return evidence_for(job)
 
 
@@ -283,8 +403,16 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
 
     for attempt in range(first, max_attempts + 1):
         job = key if attempt == 1 else f"{key}-r{attempt}"
-        plan = ({"brief": brief, "budget": 16, "window": 900} if attempt == 1
-                else approach(role, obstacle, attempt, brief))
+        previous_job = key if attempt == 2 else f"{key}-r{attempt - 1}"
+        plan = ({"brief": brief, "budget": turn_budget(role), "window": 900} if attempt == 1
+                else approach(role, obstacle, attempt, brief, previous_job))
+        if plan:
+            # A rung answers *how* to retry, not how little to spend. Its
+            # literal budgets predate per-role budgets, so a recovery for the
+            # designer was handing back 24 turns against a role baseline of 32
+            # — the retry started poorer than the attempt that just failed.
+            plan["budget"] = max(plan["budget"], turn_budget(role))
+            plan["window"] = fits(plan["budget"], plan["window"])
         if not plan:
             tried.append({"attempt": attempt, "skipped": "sin vía alternativa",
                           "obstacle": obstacle})

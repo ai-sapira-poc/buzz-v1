@@ -1,11 +1,14 @@
 """Drain one completed native mandate and return its evidence to the maestro.
 
-One process, one file lock, at most fourteen specialist conversations and one
-synthesis. It never consumes the global queue or automatically retries failures.
+One durable driver, one file lock, at most fourteen specialist conversations and
+one synthesis. It never consumes the global queue or automatically retries
+failures; a long-running specialist may keep this driver alive until it finishes
+or is explicitly cancelled.
 """
 import argparse
 import fcntl
 import hashlib
+import json
 import subprocess
 import signal
 
@@ -18,7 +21,7 @@ def synthesis_id(parent):
 
 
 def launch(parent):
-    """Launch a bounded driver after the native turn has durably completed."""
+    """Launch a durable driver after the native turn has durably completed."""
     logs = ROOT / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     with (logs / (synthesis_id(parent) + "-driver.log")).open("a") as output:
@@ -50,6 +53,14 @@ def drive(parent):
         with database() as db:
             rows = [dict(row) for row in db.execute(
                 "SELECT id,role,status FROM jobs WHERE parent=? ORDER BY created", (parent,))]
+        from operator_updates import publish_update, summarize_children
+
+        children_summary = summarize_children(rows)
+        summary_key = "children-" + hashlib.sha256(
+            json.dumps(rows, sort_keys=True).encode()
+        ).hexdigest()[:16]
+        publish_update("maestro", "maestro", parent, "summary", count=children_summary,
+                       key=summary_key)
         if any(row["status"] != "done" for row in rows):
             event(parent, "supervisor", "mandate_incomplete", {"children": rows})
             return {"status": "incomplete", "children": rows}

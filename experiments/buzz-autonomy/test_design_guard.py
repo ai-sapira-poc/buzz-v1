@@ -145,6 +145,64 @@ class GateTeachesInsteadOfAttrition(unittest.TestCase):
             ["--space-component-gap", "--color-text-heading"])
         self.assertEqual(code, 0)
 
+    def test_a_prose_spec_quoting_code_is_prose_not_disguised_ui(self):
+        # tower-diseno-c5ab328d (2026-09-16): the designer wrote its section
+        # spec as markdown that quotes TSX, and `is_ui` matched the `<div` and
+        # `{color:` inside the fences. The rejection — "UI source requires a
+        # supported design adapter; self-contained HTML only" — cannot be
+        # satisfied by a spec document, so the agent spent turns 9-14 writing
+        # probe-a/probe-b/probe-c to reverse-engineer the rule. A design spec
+        # that cites the component it specifies is the normal case.
+        spec = (
+            "# Especificación de la sección\n\nLa fila se compone así:\n\n"
+            "```tsx\nconst Row = ({p}) => <div className=\"row\">{p.name}</div>;\n```\n\n"
+            "Estados: cargando, vacío, error. El foco vuelve al disparador.\n"
+            "Cada cifra viaja con su denominador, y el silencio no es progreso.\n"
+        )
+        self.assertFalse(guard.is_ui("tower/spec.md", spec))
+
+    def test_executable_ui_hidden_in_a_text_file_is_still_caught(self):
+        # The guard exists because POLICY forbids disguising executable UI as
+        # prose. Stripping fences must not become that loophole: a file whose
+        # body IS the document, with a sentence of alibi, stays UI.
+        disguised = (
+            "Notas.\n\n```\n<!doctype html><html><head><style>\n"
+            "body { color: #333; background: #fff; font-family: Inter; }\n"
+            "</style></head><body><div class=\"app\"><button>Ir</button></div>"
+            "</body></html>\n```\n"
+        )
+        self.assertTrue(guard.is_ui("tower/notas.md", disguised))
+        self.assertTrue(guard.is_ui("tower/screen.html", "<div>hola</div>"))
+
+    def test_layout_properties_without_a_token_family_are_not_violations(self):
+        # Observed in job diseno-tower-slice1-screen (2026-09-15): the gate
+        # flagged `border-collapse: collapse` and `background-size: 100% 100%`
+        # and told the agent "no hay token; no la uses". Neither property has
+        # anything to do with the palette — they are table/layout mechanics.
+        # Following that advice would break the table; refusing it cost the
+        # designer three of its last six turns. A false positive that cannot
+        # be satisfied is the most expensive rejection there is.
+        code, message = self.gate(
+            ".t{ border-collapse: collapse; border-spacing: 0; background-size: 100% 100%;"
+            " background-repeat: no-repeat; background-position: center; background-clip: padding-box; }",
+            ["--color-border-default", "--color-surface-default"])
+        self.assertEqual(code, 0, message)
+
+    def test_shadow_composed_of_geometry_and_a_color_token_passes(self):
+        # Same run: `box-shadow: 0 -1px 0 0 var(--color-border-subtle), 0 1px 0
+        # 0 var(--color-border-subtle)` was rejected although its only colour IS
+        # a Sapira token. Offsets and blur are geometry, like border widths.
+        code, message = self.gate(
+            ".r{ box-shadow: 0 -1px 0 0 var(--color-border-subtle), inset 0 1px 2px var(--color-border-subtle); }",
+            ["--color-border-subtle", "--shadow-subtle"])
+        self.assertEqual(code, 0, message)
+
+    def test_shadow_with_a_literal_colour_is_still_rejected(self):
+        code, message = self.gate(
+            ".r{ box-shadow: 0 1px 2px rgba(0,0,0,.2); }", ["--shadow-subtle"])
+        self.assertEqual(code, 1)
+        self.assertIn("--shadow-subtle", message)
+
     def test_the_whole_list_survives_the_error_budget(self):
         # Truncating the message at 600 chars would cut the spec in half and
         # send the agent back for another round — the attrition this ends.

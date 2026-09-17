@@ -5,8 +5,10 @@ launch, not to a hypothetical one. If a guard is removed, the corresponding real
 failure comes back silently — which is what made these expensive the first time.
 """
 import json
+import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import capabilities
@@ -66,6 +68,45 @@ class Ladder(unittest.TestCase):
         plan = pursue.approach("diseno", "blocked", 2, "brief")
         self.assertIn("No", plan["brief"])
         self.assertIn("otro camino", plan["brief"])
+
+    def test_budget_lost_to_the_harness_keeps_the_scope_and_resumes(self):
+        # diseno-tower-slice1-screen (2026-09-15): the artifact passed the gate
+        # by turn 8; 6 later turns were gate rejections and 2 were malformed
+        # calls. The old rung prescribed "shrink the scope" — which is how
+        # tower-diseno-min shipped a single row. Read the trace first.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "runs").mkdir()
+            receipt = json.dumps({"path": "design/screen.html", "sha256": "ab",
+                                  "design_foundation": {"path": "design/screen.html"}})
+            probe = receipt.replace("design/screen.html", "design/_gate-probe.html")
+            trace = {"messages": (
+                [{"role": "assistant"}, {"role": "tool", "content": receipt}]
+                + [{"role": "assistant"}, {"role": "tool", "content":
+                   '{"error": "PermissionError", "message": "Sapira CSS gate: 3 infracción(es)"}'}] * 3
+                + [{"role": "assistant"}, {"role": "tool", "content":
+                   '{"error": "ValueError", "message": "Llamada mal formada"}'}]
+                + [{"role": "assistant"}, {"role": "tool", "content": probe}]
+                + [{"role": "assistant"}])}
+            (root / "runs" / "job.json").write_text(json.dumps(trace))
+            original = pursue.ROOT
+            pursue.ROOT = root
+            try:
+                plan = pursue.approach("diseno", "budget", 2, "brief", "job")
+            finally:
+                pursue.ROOT = original
+        self.assertEqual(plan["diagnosis"]["harness_turns"], 4)
+        self.assertEqual(plan["diagnosis"]["validated"], ["design/screen.html"])
+        self.assertIn("MANTÉN el alcance", plan["brief"])
+        self.assertIn("design/screen.html", plan["brief"])
+        self.assertNotIn("_gate-probe", plan["brief"])
+        self.assertNotIn("primera pieza indivisible", plan["brief"])
+        self.assertEqual(plan["budget"], 24)
+
+    def test_budget_exhaustion_without_a_trace_still_shrinks_the_scope(self):
+        # No trace to read → the pre-existing rung, unchanged.
+        plan = pursue.approach("diseno", "budget", 2, "brief", "no-such-job")
+        self.assertIn("primera pieza indivisible", plan["brief"])
 
     def test_budget_exhaustion_buys_a_smaller_scope_not_just_more_budget(self):
         # More iterations on the same plan is the failure, restated. The rung
@@ -167,13 +208,15 @@ class MalformedCallsAreLegible(unittest.TestCase):
     def test_a_missing_envelope_key_names_the_shape_expected(self):
         # `KeyError: 'args'` repeated twelve times in one design turn. The agent
         # could not fix a call when the only feedback was the missing key's name.
-        import json as _json
+        import capabilities
 
-        captured = {}
+        with self.assertRaises(ValueError) as caught:
+            capabilities.check_call({"action": "write"})
+        self.assertIn("args", str(caught.exception))
+        self.assertIn("Ejemplo:", str(caught.exception), "debe mostrar la forma correcta")
+        # The handler must run this check, not a private copy of it.
         source = (Path(__file__).parent / "capabilities.py").read_text()
-        self.assertIn('"action" not in params or "args" not in params', source)
-        self.assertIn("Ejemplo:", source, "debe mostrar la forma correcta")
-        del captured, _json
+        self.assertIn("check_call(params)", source)
 
 
 class PiHarnessUsesTheBuzzFork(unittest.TestCase):
@@ -399,3 +442,114 @@ class ARewrittenBriefDoesNotResume(unittest.TestCase):
 
         self.pilot.enqueue("product", "viejo", "tower-producto")
         self.assertEqual(job_id("producto", "nuevo"), job_id("producto", "nuevo"))
+
+
+class TurnBudgetFitsTheRole(unittest.TestCase):
+    """One number for twelve jobs starved the roles that write long artifacts.
+
+    The model underneath is slow but good: it reaches a result by iterating, so
+    the budget has to fit the work, not the median. It is still not a cure for
+    attrition — `diseno-tower-slice1-screen` had 16 turns and lost 8 to
+    unsatisfiable rejections — which is why these raise turns only where the
+    trace shows the turns doing real work.
+    """
+
+    def test_a_role_that_grounds_then_writes_gets_more_than_the_default(self):
+        from control_plane import roster
+
+        self.assertGreater(roster.turn_budget("diseno"), roster.DEFAULT_TURN_BUDGET)
+        self.assertGreater(roster.turn_budget("research"), roster.DEFAULT_TURN_BUDGET)
+        self.assertEqual(roster.turn_budget("revisor"), roster.DEFAULT_TURN_BUDGET)
+        self.assertGreater(roster.DEFAULT_TURN_BUDGET, 16, "16 was the starving default")
+
+    def test_every_budgeted_role_exists_in_the_roster(self):
+        # A typo here would silently hand the role the default forever.
+        from control_plane import roster
+
+        for role in roster.TURN_BUDGETS:
+            self.assertIn(role, roster.CONTRACTS, role)
+
+    def test_the_worker_resolves_the_budget_from_the_buzz_identity(self):
+        import worker
+
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BUZZ_TURN_BUDGET", None)
+            # The worker is handed the identity ("designer"), not the role.
+            self.assertEqual(worker.turn_budget("designer"), 32)
+            self.assertEqual(worker.turn_budget("reviewer"), 24)
+
+    def test_an_explicit_budget_still_wins_so_recovery_can_buy_turns(self):
+        # `pursue` sets BUZZ_TURN_BUDGET per rung; a role default that
+        # overruled it would silently cancel the recovery ladder.
+        import worker
+
+        with unittest.mock.patch.dict(os.environ, {"BUZZ_TURN_BUDGET": "40"}):
+            self.assertEqual(worker.turn_budget("designer"), 40)
+
+    def test_a_bigger_budget_buys_the_wall_clock_to_spend_it(self):
+        # 17 turns took 13.4 real minutes on this model. Handing a rung 32
+        # turns inside a 900 s window relabels the same death "timeout".
+        self.assertGreaterEqual(pursue.fits(32, 900), 32 * 60)
+        self.assertEqual(pursue.fits(8, 1800), 1800, "nunca encoge una ventana mayor")
+
+    def test_a_recovery_rung_never_starts_poorer_than_the_role_baseline(self):
+        # The rungs' literal budgets predate per-role budgets: the designer's
+        # retry was handed 24 turns against a baseline of 32.
+        from control_plane import roster
+
+        plan = pursue.approach("diseno", "blocked", 2, "brief")
+        self.assertGreaterEqual(
+            max(plan["budget"], roster.turn_budget("diseno")),
+            roster.turn_budget("diseno"))
+
+
+class PrerequisiteSubstitution(unittest.TestCase):
+    """A deliverable that arrives under a different job still satisfies the edge.
+
+    `coder-tower-slice1-implementation` sat queued behind the failed
+    `diseno-tower-slice1-screen` while the spec it needed sat on disk, written
+    by `tower-diseno-c5ab328d-r2`. The two dishonest ways out were forcing the
+    failed job to `done` (erasing why it failed) and leaving the coder blocked.
+    """
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.previous = pilot.ROOT
+        pilot.ROOT = Path(self.directory.name)
+        self.addCleanup(lambda: setattr(pilot, "ROOT", self.previous))
+        with pilot.database() as db:
+            for ident, status in (("failed-one", "failed"), ("delivered", "done"),
+                                  ("half-done", "running")):
+                db.execute("INSERT INTO jobs(id,role,prompt,status,created) VALUES(?,?,?,?,0)",
+                           (ident, "diseno", "p", status))
+            db.execute("INSERT INTO jobs(id,role,prompt,status,created) VALUES('dependent','coder','p','queued',0)")
+            db.execute("INSERT INTO job_dependencies VALUES('dependent','failed-one')")
+
+    def unmet(self):
+        with pilot.database() as db:
+            return db.execute(
+                f"""SELECT 1 FROM job_dependencies d LEFT JOIN jobs p ON p.id=d.prerequisite
+                    WHERE d.job='dependent' AND {pilot.UNMET} LIMIT 1""").fetchone()
+
+    def test_the_edge_opens_without_the_failure_being_rewritten(self):
+        self.assertIsNotNone(self.unmet(), "bloqueado antes de sustituir")
+        pilot.substitute_prerequisite("dependent", "failed-one", "delivered",
+                                      "la spec la entregó el reintento")
+        self.assertIsNone(self.unmet(), "la sustitución abre la dependencia")
+        with pilot.database() as db:
+            status = db.execute("SELECT status FROM jobs WHERE id='failed-one'").fetchone()["status"]
+        self.assertEqual(status, "failed", "el fallo sigue siendo un fallo")
+
+    def test_an_unfinished_job_cannot_be_laundered_into_a_prerequisite(self):
+        with self.assertRaises(ValueError) as caught:
+            pilot.substitute_prerequisite("dependent", "failed-one", "half-done", "porque sí")
+        self.assertIn("not done", str(caught.exception))
+        self.assertIsNotNone(self.unmet(), "sigue bloqueado")
+
+    def test_a_substitution_must_state_why_and_must_match_a_real_edge(self):
+        with self.assertRaises(ValueError):
+            pilot.substitute_prerequisite("dependent", "failed-one", "delivered", "   ")
+        with self.assertRaises(ValueError):
+            pilot.substitute_prerequisite("dependent", "no-such-edge", "delivered", "razón")
+        self.assertIsNotNone(self.unmet())

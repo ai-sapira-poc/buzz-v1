@@ -1,9 +1,8 @@
 """Supervise one agent: run it, and when it exits, run it again.
 
-`buzz-acp` exits on its own inactivity timeout by design, which keeps an idle
-agent from holding resources. That is only sensible if something brings it back
-— otherwise the first quiet stretch silently removes the agent from the channel,
-and the operator finds out by being ignored.
+Long-running work is the default. A healthy agent may stay quiet while a model
+thinks for hours, so this supervisor restarts only an actual process exit. An
+explicit duration can still be passed to the harness for a diagnostic run.
 
 Restarts are logged with their reason, so "the agent was not there" is always
 visible afterwards instead of being an absence of evidence.
@@ -20,7 +19,7 @@ import control_plane  # noqa: F401  (pins BUZZ_PILOT_HOME before pilot loads)
 from control_plane.roster import CONTRACTS, PI
 from control_plane.run_hermes import CONTROL_PLANE_CHANNEL
 
-WINDOW = 1800
+WINDOW = None
 BACKOFF = 5
 MAX_BACKOFF = 120
 

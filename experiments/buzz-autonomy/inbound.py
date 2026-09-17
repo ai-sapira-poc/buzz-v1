@@ -91,7 +91,7 @@ def claim(role, prompt):
         if os.environ.get("BUZZ_CLAIM_UNMENTIONED") != "1":
             if ["p", own] not in [t[:2] for t in tags]:
                 continue
-        if re.match(r"^\[(?:acp-|[a-zA-Z0-9_-]+\])", row["content"]):
+        if re.match(r"^\[(?:informe|acp-|[a-zA-Z0-9_-]+)\]", row["content"].strip()):
             # Status reports are never interpreted as new mandates.
             continue
         verified.append(row)

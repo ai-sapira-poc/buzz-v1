@@ -16,8 +16,9 @@ hypothetical one:
   teammates, and resolving them would let fetched text page anyone in the world.
 * Only names on the roster resolve. An unknown `@something` stays literal text
   rather than fanning out or failing the publish.
-* A message that opens with `[job-id]` is a report, and reports never carry
-  mentions — that is what keeps a result from becoming a new assignment.
+* A message that opens with `[informe]` (or the legacy `[job-id]`) is a report,
+  and reports never carry mentions — that is what keeps a result from becoming
+  a new assignment.
 """
 import os
 import re
@@ -92,7 +93,7 @@ def resolve_mentions(text: str, job: str, role: str | None = None) -> tuple[str,
     Returns the text unchanged: the `@name` stays readable for humans, and the
     relay is told separately whom to notify.
     """
-    reporting_envelope = bool(re.match(r"^\[[a-zA-Z0-9_-]+\]", text.strip()))
+    reporting_envelope = bool(re.match(r"^\[(?:informe|[a-zA-Z0-9_-]+)\]", text.strip()))
     if reporting_envelope and (role or "") not in ORCHESTRATORS:
         return text, []           # a specialist's result is never an assignment
     names = roster_pubkeys()
@@ -115,7 +116,28 @@ def resolve_mentions(text: str, job: str, role: str | None = None) -> tuple[str,
 
 
 def publish(role, job, text):
-    body = f"[{job}] {report_text(text[:10000])}"
+    try:
+        from operator_updates import label, result_header
+
+        display_role = label(role)
+        operator_header = result_header(role)
+    except Exception:  # noqa: BLE001 - reporting must work without the roster
+        display_role = role.replace("_", " ").title()
+        operator_header = (
+            "Estado: se ha registrado una entrega para el equipo.\n"
+            "Impacto: aporta evidencia para la siguiente decisión.\n"
+            "Siguiente acción: revisar la evidencia y decidir el siguiente paso."
+        )
+    # Keep a generic machine marker for the inbound deduplicator, but put the
+    # opaque id in a secondary reference. The operator sees the business role
+    # and result before having to understand the job protocol.
+    body = (
+        f"[informe] Resultado para el equipo — {display_role}\n\n"
+        f"{operator_header}\n\n"
+        "Detalle técnico:\n"
+        f"{report_text(text[:10000])}\n\n"
+        f"Referencia técnica: {job}"
+    )
     body, mentions = resolve_mentions(body, job, role)
     args = ["messages", "send", "--channel", target_channel(), "--content", body]
     for pubkey in mentions:

@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 from pilot import ROOT, REPO, config, database, enqueue, event, safe_path
 
 PERMISSIONS = {
-    "maestro": {"read", "write", "remember", "recall", "delegate", "results"},
+    "maestro": {"read", "write", "remember", "recall", "delegate", "results", "buzz"},
     "research": {"read", "write", "remember", "recall", "fetch"},
     "product": {"read", "write", "remember", "recall"},
     "designer": {"read", "write", "recall"},
@@ -27,6 +27,10 @@ PERMISSIONS = {
     "operations": {"read", "write", "recall", "railway"},
     "editor": {"read", "write", "recall", "linear"},
 }
+# Whoever may read may look first: listing is strictly weaker than reading.
+for _grants in PERMISSIONS.values():
+    if "read" in _grants:
+        _grants.add("list")
 PUBLIC_HOSTS = {"arxiv.org", "www.anthropic.com", "research.google", "deepmind.google"}
 
 
@@ -160,6 +164,76 @@ BATCH_LIMIT = 12
 # Never inside a batch: `batch` would nest into a loop with no turn boundary to
 # stop it, and `delegate` would spawn work that no one watched being created.
 BATCH_FORBIDDEN = {"batch", "delegate"}
+# Hermes replaces an oversized tool result with a short stub, so an untrimmed
+# batch returns *nothing at all*: one turn fetched five papers into a 105k-char
+# result, the agent received a ~1.5k placeholder, and re-fetched all five the
+# next turn. Trimmed payloads are worth more than a stub, so cap the aggregate.
+BATCH_OUTPUT_LIMIT = 60000
+# Never trim a payload below this: a fragment too small to answer anything is
+# indistinguishable from the stub we are avoiding.
+BATCH_PAYLOAD_FLOOR = 2000
+
+
+def trim_batch_results(payload):
+    """Shrink the largest successful payloads until `payload` fits the cap.
+
+    Trims the biggest text first, so one huge fetch is cut before four modest
+    ones, and marks every touched record with `truncated` so the agent knows
+    the page is partial rather than short.
+    """
+    def trimmable():
+        found = []
+        for record in payload["results"]:
+            result = record.get("result")
+            if not isinstance(result, dict):
+                continue
+            for key in ("text", "content"):
+                value = result.get(key)
+                if isinstance(value, str) and len(value) > BATCH_PAYLOAD_FLOOR:
+                    found.append((len(value), record, result, key))
+        return found
+
+    while len(json.dumps(payload, ensure_ascii=False)) > BATCH_OUTPUT_LIMIT:
+        candidates = trimmable()
+        if not candidates:
+            break
+        _, record, result, key = max(candidates, key=lambda c: c[0])
+        result[key] = result[key][:max(BATCH_PAYLOAD_FLOOR, len(result[key]) // 2)]
+        record["truncated"] = True
+    return payload
+
+
+CALL_EXAMPLE = '{"action": "write", "args": {"path": "x.html", "content": "..."}}'
+
+
+def check_call(params, where="Llamada"):
+    """Validate the {action, args} envelope before it reaches `operate`.
+
+    A missing key here surfaced to the agent as the word "KeyError" and the
+    character `'args'`, which says nothing about the shape it should have sent.
+    One design turn repeated that same malformed call twelve times. Later a
+    call with `"args": ""` got past the missing-key check and died inside the
+    action as "string indices must be integers" — equally unactionable, one
+    turn wasted. Both are the same defect: name the expected envelope.
+    """
+    missing = [k for k in ("action", "args") if k not in params]
+    if not missing and not isinstance(params["args"], dict):
+        missing = ["args"]
+    if missing:
+        raise ValueError(
+            f"{where} mal formada: la herramienta espera "
+            '{"action": "<acción>", "args": {...}} y faltan o no son objeto '
+            f"{missing}. Ejemplo: {CALL_EXAMPLE}"
+        )
+
+
+def require_keys(action, args, *keys):
+    """Turn a bare KeyError on a required arg into an error the agent can act on."""
+    missing = [k for k in keys if k not in args]
+    if missing:
+        raise ValueError(
+            f"'{action}' necesita {missing} en args. Ejemplo: {CALL_EXAMPLE}"
+        )
 
 
 def run_batch(role, job, args):
@@ -188,21 +262,24 @@ def run_batch(role, job, args):
 
     results = []
     for index, step in enumerate(steps):
-        if not isinstance(step, dict) or "action" not in step:
+        if not isinstance(step, dict):
             raise ValueError(f"Paso {index} mal formado: necesita 'action' y 'args'")
+        check_call(step, where=f"Paso {index}")
         step_action = step["action"]
         if step_action in BATCH_FORBIDDEN:
             raise PermissionError(f"'{step_action}' no puede ir dentro de un batch")
         try:
             results.append({"step": index, "action": step_action, "ok": True,
-                            "result": operate(role, job, step_action, step.get("args") or {})})
+                            "result": operate(role, job, step_action, step["args"])})
         except Exception as error:  # noqa: BLE001 - a failed step must not lose the rest
-            # Stop here, but hand back everything that already succeeded. The
-            # alternative — throwing the whole batch away — makes a batch riskier
-            # than the sequential calls it replaces, which would defeat it.
+            # Report the failure in place and keep going. The steps after it are
+            # independent — they were batched precisely because none of them
+            # reads the previous result — so aborting here loses work that would
+            # have succeeded. One denied host at step 0 dropped four valid reads
+            # per turn and burned a 16-turn research budget without producing an
+            # artifact; the rest of the batch is exactly what the agent needed.
             results.append({"step": index, "action": step_action, "ok": False,
                             "error": type(error).__name__, "message": str(error)[:300]})
-            break
     # Name the failure in the record. Logging only a count ("failed: 1") makes a
     # batch the one operation whose errors are invisible to the operator: six
     # consecutive failures looked identical in the event log, and diagnosing them
@@ -217,7 +294,49 @@ def run_batch(role, job, args):
         record["error"] = broken["error"]
         record["message"] = broken["message"]
     event(job, role, "batch", record)
-    return {"steps": len(steps), "results": results}
+    return trim_batch_results({"steps": len(steps), "results": results})
+
+
+def missing_path_hint(relative: str, target: Path) -> str:
+    """A not-found error that names what *does* exist next to the miss.
+
+    The bare "[Errno 2] No such file" told the agent nothing it could act on;
+    the next guess was as blind as the last. Siblings ranked by similarity
+    turn the miss into a lookup.
+    """
+    import difflib
+    parent = target.parent
+    while not parent.exists() and parent != parent.parent:
+        parent = parent.parent
+    names = sorted(p.name + ("/" if p.is_dir() else "") for p in parent.iterdir()) if parent.is_dir() else []
+    close = difflib.get_close_matches(target.name, [n.rstrip("/") for n in names], n=5, cutoff=0.3)
+    shown = [n for n in names if n.rstrip("/") in close] or names[:8]
+    base = (ROOT / "artifacts").resolve()
+    where = str(parent.relative_to(base)) if parent != base else "."
+    return (f"No existe {relative!r}. En {where!r} hay: {', '.join(shown) or '(vacío)'}. "
+            "Usa list {\"path\": \"<dir>\"} para ver el árbol antes de leer.")
+
+
+def list_entries(relative: str, depth: int, limit: int) -> dict:
+    if type(depth) is not int or not 1 <= depth <= 3 or type(limit) is not int or not 1 <= limit <= 500:
+        raise ValueError("list: depth must be 1..3 and limit 1..500")
+    base = (ROOT / "artifacts").resolve()
+    root = base if relative in ("", ".", "/") else safe_path(relative)
+    if not root.exists():
+        raise FileNotFoundError(missing_path_hint(relative, root))
+    if not root.is_dir():
+        raise NotADirectoryError(f"{relative!r} es un fichero; usa read para leerlo")
+    entries, truncated = [], False
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root)
+        if len(rel.parts) > depth or any(part.startswith(".") for part in rel.parts):
+            continue
+        if len(entries) >= limit:
+            truncated = True
+            break
+        entries.append({"path": str(path.relative_to(base)), "dir": path.is_dir(),
+                        **({} if path.is_dir() else {"chars": path.stat().st_size})})
+    return {"path": relative, "entries": entries, "count": len(entries), "truncated": truncated}
 
 
 def operate(role, job, action, args):
@@ -236,8 +355,18 @@ def operate(role, job, action, args):
     elif action == "context":
         from context import access
         result = access(job, args)
+    elif action == "list":
+        # 106 of the 321 tool errors in pilot.db were FileNotFoundError on
+        # `read`: without a way to see what exists, agents guessed paths and
+        # paid a turn per guess. A bounded listing is cheaper than any guess.
+        require_keys(action, args, "path")
+        result = list_entries(args["path"], args.get("depth", 1), args.get("limit", 200))
     elif action == "read":
-        text = safe_path(args["path"]).read_text()
+        require_keys(action, args, "path")
+        target = safe_path(args["path"])
+        if not target.exists():
+            raise FileNotFoundError(missing_path_hint(args["path"], target))
+        text = target.read_text()
         offset, limit = args.get("offset", 0), args.get("limit", 24000)
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 24000:
             raise ValueError("Read offset must be nonnegative; limit must be 1..24000 characters")
@@ -247,6 +376,7 @@ def operate(role, job, action, args):
                   "next_offset": end if end < len(text) else None,
                   "sha256": hashlib.sha256(text.encode()).hexdigest()}
     elif action == "write":
+        require_keys(action, args, "path")
         path = safe_path(args["path"])
         if "old_text" in args or "new_text" in args:
             if "content" in args:
@@ -266,6 +396,7 @@ def operate(role, job, action, args):
                 raise ValueError("Replacement requires exactly one matching nonempty old_text")
             text = text.replace(old, new, 1)
         else:
+            require_keys(action, args, "content")
             text = args["content"]
         if len(text) > 128000:
             raise ValueError("Artifact too large")
@@ -322,7 +453,17 @@ def operate(role, job, action, args):
             raise PermissionError("Final synthesis cannot delegate new work")
         if args["role"] == "maestro":
             raise PermissionError("Recursive supervisor delegation is outside this pilot budget")
-        result = {"job": enqueue(args["role"], args["prompt"], args["id"], parent=job, depends_on=args.get("depends_on"))}
+        child = enqueue(args["role"], args["prompt"], args["id"], parent=job,
+                        depends_on=args.get("depends_on"))
+        # The technical handoff remains in the job/event log. This separate,
+        # deterministic projection tells the operator immediately that work was
+        # actually created; otherwise a model can finish its turn with a plan
+        # while the UI remains indistinguishable from "nothing happened".
+        from operator_updates import publish_delegation
+
+        publish_delegation("maestro", args["role"], child,
+                           dependencies=args.get("depends_on"))
+        result = {"job": child}
     elif action == "results":
         with database() as db:
             result = [dict(r) for r in db.execute("""SELECT id,role,status,result FROM jobs
@@ -336,7 +477,15 @@ def operate(role, job, action, args):
         url = args["url"]
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.hostname not in PUBLIC_HOSTS or parsed.port not in (None, 443):
-            raise PermissionError("Source outside public research allowlist")
+            # Name the allowlist in the denial. Saying only "outside the
+            # allowlist" leaves the agent one experiment per turn away from
+            # knowing it: one job spent 18 fetches on 13 distinct hosts
+            # discovering the four it was ever allowed to reach.
+            raise PermissionError(
+                f"Source outside public research allowlist: {parsed.hostname!r}. "
+                "fetch reaches only https:// on " + ", ".join(sorted(PUBLIC_HOSTS))
+                + "; other hosts will be refused too, do not probe them one by one."
+            )
         # Reject redirects before following them, including redirects to private hosts.
         import urllib.request
         class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -417,22 +566,12 @@ def register(role, job):
     from toolsets import TOOLSETS
     name = "pilot_" + role
     PERMISSIONS[role].add("context")
-    schema = {"name": "pilot", "description": "Execute a scoped operation. Available actions: " + ", ".join(sorted(PERMISSIONS[role])) + ", batch. batch: steps (array of {action,args}, max 12) — runs several operations in ONE turn instead of one per turn. Prefer it whenever the next operations do not depend on reading the previous result: three reads and a write cost one turn batched, four separately. Each step is permission-checked exactly as if called alone; batch and delegate cannot be nested inside it. A failing step stops the batch and returns everything already done." + ". read: path, optional offset/limit (characters, max 24000); follow next_offset until truncated=false before claiming full inspection. write: path,content OR path,old_text,new_text (exactly one match; prefer small edits to rewriting large files). remember: id,kind (belief|question|idea|experience|skill|report),text,evidence(array),status(candidate|supported|rejected|retired). Skills cannot self-promote to supported. Maestro/reviewer can restore an existing entry with id,kind,restore_revision,evidence instead of text. recall: optional id,history=true. delegate: id,role,prompt, optional depends_on (list of previously enqueued job IDs). Maximum 14 children; no recursive maestro. fetch: url. browser: path,steps(maximum 24; each call starts fresh; array of {action:click|fill|text|inspect|select|press,selector,value?}). buzz: command,subcommand, optional args (array of strings) — run a READ-ONLY Buzz command and see what the product actually does: channels/messages/projects/issues/notes/feed/users/workflows/canvas/reactions/mem. A command that fails is a finding, not an accident: it is reported to you, not hidden. results/linear/railway: no args.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": sorted(PERMISSIONS[role] | {"batch"})}, "args": {"type": "object"}}, "required": ["action", "args"]}}
+    schema = {"name": "pilot", "description": "Execute a scoped operation. Available actions: " + ", ".join(sorted(PERMISSIONS[role])) + ", batch. batch: steps (array of {action,args}, max 12) — runs several operations in ONE turn instead of one per turn. Prefer it whenever the next operations do not depend on reading the previous result: three reads and a write cost one turn batched, four separately. Each step is permission-checked exactly as if called alone; batch and delegate cannot be nested inside it. A failing step is reported in place as {ok:false,error,message} and the remaining steps still run, so independent work does not need to be re-requested." + ". list: path (directory, '.' for the root), optional depth (1-3), limit (max 500) — see what exists BEFORE reading; a read of a wrong path costs a turn and a list never does. read: path, optional offset/limit (characters, max 24000); follow next_offset until truncated=false before claiming full inspection. write: path,content OR path,old_text,new_text (exactly one match; prefer small edits to rewriting large files). remember: id,kind (belief|question|idea|experience|skill|report),text,evidence(array),status(candidate|supported|rejected|retired). Skills cannot self-promote to supported. Maestro/reviewer can restore an existing entry with id,kind,restore_revision,evidence instead of text. recall: optional id,history=true. delegate: id,role,prompt, optional depends_on (list of previously enqueued job IDs). Maximum 14 children; no recursive maestro. browser: path,steps(maximum 24; each call starts fresh; array of {action:click|fill|text|inspect|select|press,selector,value?}). buzz: command,subcommand, optional args (array of strings) — run a READ-ONLY Buzz command and see what the product actually does: channels/messages/projects/issues/notes/feed/users/workflows/canvas/reactions/mem. A command that fails is a finding, not an accident: it is reported to you, not hidden. fetch: url — https:// only, and only on " + ", ".join(sorted(PUBLIC_HOSTS)) + "; any other host is refused, so do not spend turns probing one. results/linear/railway: no args.", "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": sorted(PERMISSIONS[role] | {"batch"})}, "args": {"type": "object"}}, "required": ["action", "args"]}}
     def handler(params, **kwargs):
         from inbound import ACTIVE_JOB
         current_job = ACTIVE_JOB.get() or job
         try:
-            # A missing key here surfaced to the agent as the word "KeyError"
-            # and the character `'args'`, which says nothing about the shape it
-            # should have sent. One design turn repeated that same malformed
-            # call twelve times. Name the expected envelope instead.
-            if "action" not in params or "args" not in params:
-                raise ValueError(
-                    "Llamada mal formada: la herramienta espera "
-                    '{"action": "<acción>", "args": {...}} y faltan '
-                    f"{[k for k in ('action', 'args') if k not in params]}. "
-                    'Ejemplo: {"action": "write", "args": {"path": "x.html", "content": "..."}}'
-                )
+            check_call(params)
             return json.dumps(operate(role, current_job, params["action"], params["args"]), ensure_ascii=False)
         except Exception as exc:
             action = params.get("action")

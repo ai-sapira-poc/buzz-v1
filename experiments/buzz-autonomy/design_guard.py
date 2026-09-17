@@ -28,6 +28,17 @@ Brand extensions require an explicit, reviewed derivation of Sapira, never a
 parallel palette. Source changes invalidate the contract and require a new run.
 QA/review must check actual rendered use, keyboard, responsive and error states;
 passing the foundation gate alone is not professional design acceptance.
+CSS gate dialect, so the first write passes (four designer runs died learning
+it one rejected write at a time): every colour, background, font-family/weight,
+line-height, letter-spacing, radius, shadow colour, padding, margin and gap MUST
+be a var(--token) from the foundation block — no hex, rgb, named colours or
+literal rem/px there. Allowed literals: font-size in rem; border/outline widths
+in px/rem; 0 and auto; shadow offsets/blur/inset beside a colour token;
+table/background mechanics (border-collapse, border-spacing,
+background-size/repeat/position). Never define --custom tokens, !important,
+external styles/scripts, inline SVG, emoji, or JS style mutation beyond
+.style.display. A rejection costs a whole turn: write the document once, then
+correct with old_text/new_text instead of resending the full file.
 """
 SOURCES = ("AGENTS.md", "docs/ADOPTION.md", "packages/ui/package.json",
            "packages/ui/src/tokens/tokens.json", "packages/ui/src/tokens/themes/sapira.ts")
@@ -107,9 +118,30 @@ class Styles(HTMLParser):
             self.css.append(data)
 
 
+MARKUP = re.compile(
+    r"<(?:!doctype|html|style|button|input|svg|div|main|form)\b"
+    r"|\{[^{}]*(?:color|background|font-family)\s*:", re.I)
+FENCE = re.compile(r"^[ \t]*(?:```|~~~).*?(?:^[ \t]*(?:```|~~~)|\Z)", re.M | re.S)
+
+
 def is_ui(path, text):
-    return Path(path).suffix.lower() in UI_SUFFIXES or bool(re.search(
-        r"<(?:!doctype|html|style|button|input|svg|div|main|form)\b|\{[^{}]*(?:color|background|font-family)\s*:", text, re.I))
+    """Is this an executable UI source, as opposed to prose about one?
+
+    A design spec quotes the component it specifies; matching markup inside a
+    fenced block called that prose "disguised UI" and rejected it with an
+    adapter error no document could satisfy. tower-diseno-c5ab328d burned six
+    turns writing probes to reverse-engineer the rule instead of designing.
+    So fenced code is read as citation — unless the fences ARE the file, which
+    is the disguise POLICY actually forbids.
+    """
+    if Path(path).suffix.lower() in UI_SUFFIXES:
+        return True
+    quoted = "".join(m.group(0) for m in FENCE.finditer(text))
+    prose = FENCE.sub("", text)
+    if MARKUP.search(prose):
+        return True
+    # An alibi sentence wrapped around a whole document is not a citation.
+    return bool(quoted) and len(quoted) > 0.6 * len(text) and bool(MARKUP.search(quoted))
 
 
 def validate_html(text, data):
@@ -158,6 +190,32 @@ def record(job, receipt):
         data = json.loads(path.read_text()) if path.exists() else {}
         data[receipt["path"]] = receipt
         pilot.write_json(path, data)
+
+
+def validated_artifacts(job):
+    """Receipts recorded for this job whose file on disk still matches the validated bytes.
+
+    Pure read: a receipt whose file changed, vanished, or escaped the pilot
+    scope is dropped — a changed file is not validated. Gate-validated is not
+    the same as accepted; callers must not present these as done.
+    """
+    path = pilot.ROOT / "design" / job / "writes.json"
+    if not path.exists():
+        return []
+    try:
+        receipts = json.loads(path.read_text())
+    except ValueError:
+        return []
+    artifacts = []
+    for receipt in receipts.values():
+        try:
+            text = pilot.safe_path(receipt["path"]).read_text()
+        except (OSError, PermissionError, KeyError, UnicodeDecodeError):
+            continue
+        if digest(text) != receipt.get("sha256"):
+            continue
+        artifacts.append({"path": receipt["path"], "sha256": receipt["sha256"], "kind": receipt.get("kind")})
+    return artifacts
 
 
 def completion(job):
