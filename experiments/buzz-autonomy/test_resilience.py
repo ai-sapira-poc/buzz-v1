@@ -260,9 +260,13 @@ class CodeRolesWorkInTheRepo(unittest.TestCase):
         # Started in the pilot home, a code role cannot see desktop/src at all,
         # so it reports "not found" for files that are right there — a wrong
         # answer dressed as a finding.
-        source = (Path(__file__).parent / "control_plane/pursue.py").read_text()
-        self.assertIn("run_pi(role, brief, str(REPO)", source)
-        self.assertNotIn("run_pi(role, brief, str(ROOT)", source)
+        # The guarantee moved with the call: routing every harness through the
+        # supervisor is what gives a code role its durable record, and the
+        # supervisor is now where the working directory is chosen.
+        source = (Path(__file__).parent / "supervisor.py").read_text()
+        body = source.split("def _execute_pi")[1].split("\ndef ")[0]
+        self.assertIn("str(REPO)", body)
+        self.assertNotIn("str(ROOT)", body)
 
 
 class RungsActuallyRun(unittest.TestCase):
@@ -622,3 +626,30 @@ class UpstreamOutageIsNotAFailedAssignment(unittest.TestCase):
         self.assertEqual(pursue.classify({"reason": reason}), "denied")
         self.assertEqual(pursue.approach("coder", "denied", 2, "brief"), {},
                          "no hay peldaño que arregle una capacidad que falta")
+
+
+class EverySuccessLeavesEvidence(unittest.TestCase):
+    """`tower-coder` reported `reached: true` on evidence that existed nowhere.
+
+    The Pi branch of `attempt_once` called `pi_harness.run` directly, which
+    looked like a harmless shortcut and skipped the whole durable-record layer:
+    no job row, no artifact, no publication to the team channel, no operator
+    update, no heartbeat. A 21-minute delivery that nobody in Buzz could see,
+    and a success claim backed only by the driver's own stdout.
+    """
+
+    def test_the_pi_branch_no_longer_bypasses_the_supervisor(self):
+        source = (Path(__file__).parent / "control_plane" / "pursue.py").read_text()
+        body = source.split("def attempt_once")[1].split("\ndef ")[0]
+        self.assertNotIn("run_pi(", body,
+                         "un rol de código no puede saltarse el registro durable")
+        self.assertIn("supervisor.execute(job", body,
+                      "ambos harnesses pasan por el supervisor")
+
+    def test_both_harnesses_reach_the_same_durable_path(self):
+        # supervisor.execute routes Pi roles itself, so one call covers both.
+        import supervisor
+
+        source = (Path(__file__).parent / "supervisor.py").read_text()
+        self.assertIn("_pi_role_for(job)", source.split("def execute(job")[1][:600])
+        self.assertTrue(callable(supervisor.execute))

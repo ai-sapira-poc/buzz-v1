@@ -347,23 +347,14 @@ def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> d
     # `window` remains part of the ladder's evidence and dry-run output. It is
     # not a quality cap: only an explicit operator setting may kill a long run.
     window = hard_timeout()
-    if contract["harness"] == PI:
-        from control_plane.pi_harness import run as run_pi
-
-        # The repository is the working directory, not the pilot home. A code
-        # role started in ROOT cannot see `desktop/src` at all, so it would
-        # "fail to find" files that are right there — a wrong answer that looks
-        # like a finding.
-        try:
-            result = run_pi(role, brief, str(REPO), timeout=window, job=job)
-        except Exception as error:  # noqa: BLE001
-            # A driver whose job is surviving failure must survive this one. The
-            # architect's timeout propagated straight out and killed the pursuit
-            # on attempt 1, so the ladder it exists to climb was never reached.
-            reason = f"{type(error).__name__}: {str(error)[:200]}"
-            event(job, role, "attempt_crashed", {"reason": reason})
-            return {"status": "failed", "reason": reason, "final": ""}
-        return {"status": "done" if result.get("final") else "failed", **result}
+    # Both harnesses go through the supervisor. Calling `pi_harness.run`
+    # directly looked like a harmless shortcut and silently skipped the entire
+    # durable-record layer: `tower-coder` worked for 21 minutes, delivered, and
+    # left no job row, no artifact, no publication to the team channel and no
+    # operator update. The pursuit reported `reached: true` on evidence that
+    # existed nowhere but its own stdout, which is the one thing this project
+    # says it will never do. The supervisor owns the claim, the heartbeat, the
+    # artifact, the handoff and the failure record for both paths.
 
     previous = os.environ.get("BUZZ_TURN_BUDGET")
     previous_channel = os.environ.get("BUZZ_PUBLISH_CHANNEL")
@@ -391,7 +382,18 @@ def attempt_once(role: str, job: str, brief: str, budget: int, window: int) -> d
         # `tick` runs whatever is queued under a fixed 180s deadline, which
         # silently overrode the window this rung asked for: attempt 2 was given
         # 900s and was killed at 180. Drive the job we know about, directly.
-        supervisor.execute(job, timeout=window)
+        try:
+            supervisor.execute(job, timeout=window)
+        except Exception as error:  # noqa: BLE001
+            # A driver whose job is surviving failure must survive this one.
+            # The architect's TimeoutExpired propagated straight out and killed
+            # the pursuit on attempt 1, so the ladder it exists to climb was
+            # never reached. Claim failures raise here too (`Pi job not queued`,
+            # unmet prerequisites), and each is a rung's input, not its end.
+            reason = f"{type(error).__name__}: {str(error)[:200]}"
+            event(job, role, "attempt_crashed", {"reason": reason})
+            return {"status": "failed", "reason": reason, "final": "",
+                    "blocked_calls": 0, "denied": False}
     finally:
         if previous is None:
             os.environ.pop("BUZZ_TURN_BUDGET", None)
