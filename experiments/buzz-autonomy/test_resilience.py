@@ -7,6 +7,7 @@ failure comes back silently — which is what made these expensive the first tim
 import json
 import os
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -580,3 +581,34 @@ class UpstreamOutageIsNotAFailedAssignment(unittest.TestCase):
 
     def test_a_real_budget_failure_is_still_told_apart_from_an_outage(self):
         self.assertEqual(pursue.classify({"reason": "max_iterations_reached(32/32)"}), "budget")
+
+    def test_an_outage_does_not_burn_the_alternatives_kept_for_real_obstacles(self):
+        # tower-coder exhausted three attempts in under two minutes against a
+        # 502. Every rung it spent was an approach it never got to try.
+        from unittest.mock import patch
+
+        calls = []
+
+        def busy(role, job, brief, budget, window):
+            calls.append(job)
+            return {"status": "failed", "reason": "503 chat_admission_busy", "final": ""}
+
+        with patch.object(pursue, "attempt_once", busy), \
+             patch.object(pursue, "brief_for", lambda role: "brief"), \
+             patch.object(pursue, "evidence_for", lambda key: {
+                 "status": None, "reason": None, "blocked_calls": 0,
+                 "denied": False, "final": ""}), \
+             patch.object(pursue, "event", lambda *a, **k: None), \
+             patch.object(pursue, "job_id", lambda role, brief: "tower-coder"), \
+             patch.object(time, "sleep", lambda s: None):
+            out = pursue.pursue("coder", max_attempts=3)
+
+        self.assertFalse(out["reached"])
+        self.assertEqual(out["obstacle"], "transient")
+        # It kept retrying the same attempt rather than climbing rungs.
+        self.assertEqual(set(calls), {"tower-coder"},
+                         "no debe escalar peldaños por una caída")
+        self.assertGreater(len(calls), 3, "y debe insistir más que los 3 intentos")
+        self.assertEqual(len(calls), pursue.MAX_TRANSIENT_WAITS + 1, "pero con tope")
+        self.assertIn("no admite turnos", json.dumps(out, ensure_ascii=False),
+                      "y debe decir que el endpoint está caído, no inventar otra causa")

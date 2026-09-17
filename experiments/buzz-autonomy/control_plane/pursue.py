@@ -94,6 +94,10 @@ HARNESS_REJECTION = re.compile(
 # inside a 900 s window is a job that cannot finish.
 SECONDS_PER_TURN = 75
 
+# Roughly half an hour of patience at the capped backoff, then we stop and say
+# the endpoint is down — which is a real answer, unlike a rewritten brief.
+MAX_TRANSIENT_WAITS = 8
+
 
 def fits(budget: int, window: int) -> int:
     """The window a budget of this size actually needs."""
@@ -158,7 +162,7 @@ def approach(role: str, obstacle: str, attempt: int, brief: str,
             "brief": brief,
             "budget": turn_budget(role),
             "window": 900,
-            "wait": min(300, 30 * 2 ** (attempt - 2)),
+            "wait": min(300, 30 * 2 ** max(0, attempt - 2)),
         }
 
     if obstacle == "budget":
@@ -422,7 +426,14 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
             print(f"  intento 1: {previous['status']} ({obstacle}) "
                   "— recuperado del intento anterior", flush=True)
 
-    for attempt in range(first, max_attempts + 1):
+    # A transient outage is not a rung: it says nothing about the approach, so
+    # answering it by climbing the ladder burns every alternative on a server
+    # that was simply busy. `tower-coder` exhausted three attempts in under two
+    # minutes against a 502. Transient retries re-run the *same* attempt and
+    # are bounded on their own.
+    waits = 0
+    attempt = first
+    while attempt <= max_attempts:
         job = key if attempt == 1 else f"{key}-r{attempt}"
         previous_job = key if attempt == 2 else f"{key}-r{attempt - 1}"
         plan = ({"brief": brief, "budget": turn_budget(role), "window": 900} if attempt == 1
@@ -444,6 +455,7 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
                   f"budget={plan['budget']} window={plan['window']}s")
             tried.append({"attempt": attempt, "obstacle": obstacle, "dry_run": True})
             obstacle = "budget"  # exercise the ladder without spending money
+            attempt += 1
             continue
 
         if plan.get("wait"):
@@ -465,6 +477,20 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
 
         if outcome.get("status") == "done" and obstacle != "empty":
             return {"role": role, "reached": True, "attempts": tried}
+
+        if obstacle == "transient":
+            if waits < MAX_TRANSIENT_WAITS:
+                waits += 1
+                continue  # same attempt, retried — the approach never changed
+            # Out of patience. Climbing the ladder now would spend every
+            # alternative approach on a server that is simply not answering,
+            # and "the endpoint is down" is a better answer than three
+            # rewritten briefs that were never the problem.
+            tried.append({"attempt": attempt, "job": job,
+                          "stopped": "el endpoint del modelo no admite turnos",
+                          "obstacle": obstacle, "waits": waits})
+            break
+        attempt += 1
 
     # Reaching here is a real outcome, not an error to hide: the goal was not
     # met, and the record of what was tried is what lets a teammate or the
