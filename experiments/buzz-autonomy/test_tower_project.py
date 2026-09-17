@@ -530,3 +530,37 @@ class PoisonedSessionIsQuarantined(unittest.TestCase):
         survivor.write_text("{}\n")
         self.harness._quarantine_if_poisoned("tower-otro", '{"type":"agent_end"}')
         self.assertTrue(survivor.exists(), "una ejecución sana no se pone en cuarentena")
+
+
+class UnviewableFilesNeverEnterTheTranscript(unittest.TestCase):
+    """One `read` of a PNG made the coder's job permanently unrunnable.
+
+    pi stores an image result as an image content block. The pilot's combo has
+    no vision model, so every resume of that session is answered with a
+    permanent `400 capability_mismatch`. Quarantine recovers from it; this
+    stops it happening.
+    """
+
+    def setUp(self):
+        self.guard = (Path(__file__).parent / "control_plane" / "pi_command_guard.ts").read_text()
+
+    def test_the_guard_wraps_read_as_well_as_bash(self):
+        self.assertEqual(self.guard.count("pi.registerTool"), 2,
+                         "read debe estar envuelto, no solo bash")
+        self.assertIn("createReadTool", self.guard)
+
+    def test_every_image_format_pi_can_inline_is_refused(self):
+        import re
+
+        pattern = re.search(r"const UNVIEWABLE = /(.+)/i;", self.guard)
+        self.assertIsNotNone(pattern, "el patrón debe seguir existiendo")
+        compiled = re.compile(pattern.group(1).replace("\\\\.", r"\."), re.I)
+        for name in ("shot.png", "a.JPEG", "x.webp", "d.pdf", "i.heic", "t.tiff"):
+            self.assertTrue(compiled.search(name), name)
+        for name in ("Row.tsx", "notes.md", "data.json", "png.ts"):
+            self.assertIsNone(compiled.search(name), name)
+
+    def test_the_refusal_offers_a_way_to_get_the_information(self):
+        # An error the model cannot act on costs a turn and teaches nothing.
+        self.assertIn("ls -l", self.guard)
+        self.assertIn("file", self.guard)

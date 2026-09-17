@@ -6,11 +6,19 @@
  * must say so explicitly. That preserves quality time for the model while
  * making recursive searches, hung watchers and broken builds recoverable.
  */
-import { createBashTool } from "@earendil-works/pi-coding-agent";
+import { createBashTool, createReadTool } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_TIMEOUT_SECONDS = 86_400;
+
+// Reading one of these hands the model an image block. The combo behind this
+// pilot has no vision model, so the block is not merely useless: it is
+// permanently unservable, and because pi resumes a session by id it poisons
+// every later attempt at the same job with `400 capability_mismatch`. One
+// stray `read` of a PNG cost the coder a completed seven-minute run and left
+// the job unrunnable until its session was quarantined.
+const UNVIEWABLE = /\.(png|jpe?g|gif|webp|bmp|tiff?|ico|avif|heic|pdf)$/i;
 
 function secondsFromEnv(name: string, fallback: number): number {
 	const raw = process.env[name];
@@ -30,6 +38,26 @@ export default function piCommandGuard(pi: ExtensionAPI) {
 		DEFAULT_TIMEOUT_SECONDS,
 	);
 	const bashTool = createBashTool(process.cwd());
+
+	const readTool = createReadTool(process.cwd());
+
+	pi.registerTool({
+		...readTool,
+		execute: async (id, params, signal, onUpdate, ctx) => {
+			const path = String((params as { path?: unknown }).path ?? "");
+			if (UNVIEWABLE.test(path)) {
+				// Refuse with the alternative, not only the rule: an error the
+				// model cannot act on costs a turn and teaches nothing.
+				throw new Error(
+					`read cannot open ${path}: this pilot's model combo has no vision, ` +
+						"and an image in the transcript makes the whole session unreplayable. " +
+						"Use `ls -l` for its size, `file` for its type, or read the code that " +
+						"produces it.",
+				);
+			}
+			return readTool.execute(id, params, signal, onUpdate, ctx);
+		},
+	});
 
 	pi.registerTool({
 		...bashTool,
