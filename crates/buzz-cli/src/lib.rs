@@ -801,6 +801,11 @@ pub enum JobsCmd {
         /// OpenTelemetry trace id, when one exists
         #[arg(long)]
         trace: Option<String>,
+        /// How a failure ended: `failed` (nothing delivered) or
+        /// `failed_with_delivery` (a gate-validated deliverable exists but was
+        /// not accepted). Only meaningful with `--state error`.
+        #[arg(long)]
+        outcome: Option<String>,
         /// One short line, already in business language
         #[arg(long, default_value = "")]
         content: String,
