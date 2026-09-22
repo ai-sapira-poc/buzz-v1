@@ -65,6 +65,36 @@ test("fan-out to two children is two rows, never one row per parent", () => {
   assert.deepEqual(rows.map((row) => row.child.jobId).sort(), ["c1", "c2"]);
 });
 
+test("a republished edge is one row, not two rows with the same key", () => {
+  // The producer is best-effort and may publish the same edge twice; the row
+  // list is keyed by the edge, so the second publication must not draw a
+  // second row for the same child.
+  const rows = foldHandoffEdges([
+    handoffEvent({ parent: "p1", child: "c1", at: 100 }),
+    handoffEvent({ parent: "p1", child: "c1", at: 200 }),
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "p1->c1");
+  // The newest publication wins.
+  assert.equal(rows[0].transferredAt, new Date(200 * 1000).toISOString());
+});
+
+test("the receiver's role is the child's own, joined from its events", () => {
+  const rows = foldHandoffEdges([
+    lifecycleEvent({ kind: 43002, job: "c1", at: 80, role: "reviewer" }),
+    handoffEvent({ parent: "p1", child: "c1", role: "architect", at: 100 }),
+  ]);
+  assert.equal(rows[0].sender.name, "architect");
+  assert.equal(rows[0].child.name, "reviewer");
+});
+
+test("a receiver whose role was never published stays null, not the emitter's", () => {
+  const rows = foldHandoffEdges([
+    handoffEvent({ parent: "p1", child: "c1", role: "architect" }),
+  ]);
+  assert.equal(rows[0].child.name, null);
+});
+
 test("the sender is the emitter of the handoff, not the child's role", () => {
   const rows = foldHandoffEdges([
     handoffEvent({ parent: "p1", child: "c1", role: "architect" }),

@@ -30,7 +30,7 @@ function handoffEvent({ parent, child, role = "builder", at = 100 }) {
   };
 }
 
-function lifecycleEvent({ kind, job, at }) {
+function lifecycleEvent({ kind, job, at, role }) {
   return {
     id: `${job}-${kind}-${at}`,
     pubkey: "agent",
@@ -41,6 +41,7 @@ function lifecycleEvent({ kind, job, at }) {
     tags: [
       ["p", "owner"],
       ["job", job],
+      ...(role === undefined ? [] : [["role", role]]),
     ],
   };
 }
@@ -137,6 +138,68 @@ test("loading renders a skeleton, never the empty state's copy", () => {
     }),
   );
   assert.match(markup, /tower-handover-loading/);
+  // The loading branch carries its own visible line: a bare skeleton is
+  // indistinguishable from a section that never loaded.
+  assert.match(markup, /Leyendo los relevos/);
   assert.doesNotMatch(markup, /No hay ningún relevo en esta ventana/);
   assert.doesNotMatch(markup, /tower-handover-error/);
+});
+
+test("a failure over a previous empty read keeps the failure visible", () => {
+  // R6: the last successful read returned no rows, and the next read failed.
+  // The section must not render as a plain empty state — the failure is
+  // announced above the old (empty) snapshot.
+  const markup = renderToStaticMarkup(
+    React.createElement(HandoverSection, {
+      view: deriveHandoverView(
+        snapshot({
+          isError: true,
+          error: new Error("relay unreachable"),
+          data: [],
+        }),
+        () => {},
+      ),
+    }),
+  );
+  assert.match(markup, /tower-handover-stale/);
+  assert.doesNotMatch(markup, /tower-handover-error/);
+});
+
+test("a failure over previous rows keeps the rows and names them stale", async () => {
+  const source = sourceOver([
+    handoffEvent({ parent: "tower-architect", child: "tower-coder", at: 100 }),
+  ]);
+  const rows = await source.getHandovers();
+  const markup = renderToStaticMarkup(
+    React.createElement(HandoverSection, {
+      view: deriveHandoverView(
+        snapshot({
+          isError: true,
+          error: new Error("relay unreachable"),
+          data: rows,
+        }),
+        () => {},
+      ),
+    }),
+  );
+  assert.match(markup, /tower-handover-stale/);
+  assert.match(markup, /tower-coder/);
+});
+
+test("the receiver cell names the child's own role, joined from its events", async () => {
+  const source = sourceOver([
+    lifecycleEvent({ kind: 43002, job: "tower-r2", at: 80, role: "reviewer" }),
+    handoffEvent({ parent: "tower-architect", child: "tower-r2", at: 100 }),
+  ]);
+  const rows = await source.getHandovers();
+  const markup = renderToStaticMarkup(
+    React.createElement(HandoverSection, {
+      view: deriveHandoverView(snapshot({ data: rows }), () => {}),
+    }),
+  );
+  // The child's role is not the emitter's role, and the job id alone cannot
+  // supply it ("tower-r2" contains no role name).
+  assert.match(markup, /reviewer/);
+  assert.doesNotMatch(markup, /Rol sin registrar/);
+  assert.match(markup, /builder/);
 });

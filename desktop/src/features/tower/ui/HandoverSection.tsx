@@ -60,7 +60,16 @@ function HandoverRowItem({ row }: { row: HandoverRow }) {
       data-testid="tower-handover-row"
     >
       <td className={CELL}>{row.sender.name ?? "Agente sin nombre"}</td>
-      <td className={CELL}>{row.child.jobId}</td>
+      <td className={CELL}>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate">
+            {row.child.name ?? "Rol sin registrar"}
+          </span>
+          <span className="truncate font-mono text-2xs text-muted-foreground">
+            {row.child.jobId}
+          </span>
+        </span>
+      </td>
       <td className={CELL}>
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate">{row.sender.jobId}</span>
@@ -85,6 +94,11 @@ function HandoverLoadingState() {
       className="overflow-hidden rounded-xl border border-border/70 bg-card/40"
       data-testid="tower-handover-loading"
     >
+      {/* The three states are told apart by text, not only by shape: a bare
+          skeleton is indistinguishable from a surface that never loaded. */}
+      <p className="border-b border-border/50 px-3 py-2.5 text-sm text-muted-foreground">
+        Leyendo los relevos…
+      </p>
       {rows.map((row) => (
         <div
           className="grid gap-2 border-b border-border/50 px-3 py-2.5 last:border-b-0 sm:grid-cols-5 sm:gap-3"
@@ -156,6 +170,45 @@ function HandoverErrorState({
   );
 }
 
+/**
+ * A rejection after a previous read (design spec §3, R6): the failure stays
+ * visible above the old rows instead of borrowing the empty state's meaning.
+ * Kept local rather than reusing the portfolio's banner because this section's
+ * copy is Spanish, like its rows and its other two branches.
+ */
+function HandoverStaleNotice({
+  lastSuccessAt,
+  onRetry,
+}: {
+  lastSuccessAt: string | null;
+  onRetry: () => void;
+}) {
+  const readAt =
+    lastSuccessAt === null
+      ? null
+      : lastSuccessAt.slice(0, 16).replace("T", " ");
+  return (
+    <Alert className="flex flex-col gap-1.5" data-testid="tower-handover-stale">
+      <AlertTitle>El registro de relevos no responde</AlertTitle>
+      <AlertDescription className="flex flex-col gap-1.5">
+        <span>
+          {readAt === null
+            ? "Se muestra la última lectura; no es actual, y no se sabe si hay relevos nuevos."
+            : `Se muestra la lectura de ${readAt}; no es actual, y no se sabe si hay relevos nuevos.`}
+        </span>
+        <Button
+          className="self-start"
+          onClick={onRetry}
+          type="button"
+          variant="outline"
+        >
+          Reintentar
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 function announcementFor(view: HandoverView): string {
   if (view.phase === "loading") {
     return view.lines === null ? "Leyendo los relevos" : "Relevos actualizados";
@@ -172,6 +225,9 @@ function announcementFor(view: HandoverView): string {
 export function HandoverSection({ view }: { view: HandoverView }) {
   const { lines } = view;
   const hasRows = lines !== null && lines.length > 0;
+  // A rejection after a previous read keeps the failure visible: it never
+  // borrows the empty state's meaning (design spec §3, R6).
+  const showingStale = view.phase === "unreachable" && lines !== null;
 
   return (
     <section aria-label="El relevo" className="flex flex-col gap-3">
@@ -187,6 +243,12 @@ export function HandoverSection({ view }: { view: HandoverView }) {
       >
         {announcementFor(view)}
       </p>
+      {showingStale ? (
+        <HandoverStaleNotice
+          lastSuccessAt={view.lastSuccessAt}
+          onRetry={view.retry}
+        />
+      ) : null}
       {view.phase === "loading" && lines === null ? (
         <HandoverLoadingState />
       ) : null}
