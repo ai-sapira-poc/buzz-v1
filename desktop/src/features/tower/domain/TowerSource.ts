@@ -1,3 +1,4 @@
+import type { HandoverRow } from "./handover";
 import type { PortfolioLine } from "./portfolio";
 
 /**
@@ -12,6 +13,12 @@ import type { PortfolioLine } from "./portfolio";
  */
 export interface TowerSource {
   getPortfolio(): Promise<PortfolioLine[]>;
+  /**
+   * The handoff edges (parent job → child job), one row per edge. Fails closed
+   * exactly like {@link TowerSource.getPortfolio}: a read failure rejects, it
+   * never resolves to `[]`, so a dead source cannot render as "no handoffs".
+   */
+  getHandovers(): Promise<HandoverRow[]>;
 }
 
 /**

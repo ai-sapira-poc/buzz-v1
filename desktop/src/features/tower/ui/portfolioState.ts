@@ -26,10 +26,10 @@ export interface TowerFailure {
   message: string;
 }
 
-export interface PortfolioView {
+export interface TimedLinesView<T> {
   phase: TowerPhase;
   /** Last good read. `null` means there was never one — nothing to preserve. */
-  lines: PortfolioLine[] | null;
+  lines: T[] | null;
   /** When `lines` was obtained. `null` when there is no snapshot. */
   lastSuccessAt: string | null;
   /** Present only in `unreachable`. */
@@ -39,15 +39,20 @@ export interface PortfolioView {
   retry: () => void;
 }
 
+/** The portfolio's row type is the only specialization of {@link TimedLinesView}. */
+export type PortfolioView = TimedLinesView<PortfolioLine>;
+
 /** The subset of a React Query result this derivation reads. */
-export interface PortfolioQuerySnapshot {
+export interface TimedLinesQuerySnapshot<T> {
   isPending: boolean;
   isFetching: boolean;
   isError: boolean;
-  data: PortfolioLine[] | undefined;
+  data: T[] | undefined;
   dataUpdatedAt: number;
   error: unknown;
 }
+
+export type PortfolioQuerySnapshot = TimedLinesQuerySnapshot<PortfolioLine>;
 
 function failureFrom(error: unknown): TowerFailure {
   if (error instanceof TowerSourceError) {
@@ -60,10 +65,10 @@ function failureFrom(error: unknown): TowerFailure {
   return { code: null, message: "The telemetry source could not be read." };
 }
 
-export function derivePortfolioView(
-  snapshot: PortfolioQuerySnapshot,
+export function deriveTimedLinesView<T>(
+  snapshot: TimedLinesQuerySnapshot<T>,
   retry: () => void,
-): PortfolioView {
+): TimedLinesView<T> {
   const hasSnapshot = snapshot.data !== undefined;
   const phase: TowerPhase = snapshot.isPending
     ? "loading"
@@ -82,6 +87,14 @@ export function derivePortfolioView(
     refreshing: snapshot.isFetching && !snapshot.isPending && !snapshot.isError,
     retry,
   };
+}
+
+/** The portfolio's specialization of the shared decision table. */
+export function derivePortfolioView(
+  snapshot: PortfolioQuerySnapshot,
+  retry: () => void,
+): PortfolioView {
+  return deriveTimedLinesView(snapshot, retry);
 }
 
 /**

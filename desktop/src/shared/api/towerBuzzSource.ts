@@ -1,3 +1,4 @@
+import type { HandoverRow } from "@/features/tower/domain/handover";
 import type { PortfolioLine } from "@/features/tower/domain/portfolio";
 import {
   TowerSourceError,
@@ -7,6 +8,7 @@ import { relayClient } from "@/shared/api/relayClient";
 import { getIdentity } from "@/shared/api/tauriIdentity";
 import type { RelaySubscriptionFilter } from "@/shared/api/relayClientShared";
 import type { RelayEvent } from "@/shared/api/types";
+import { buildHandoffEventFilter, foldHandoffEdges } from "./towerHandoffEdges";
 import { foldJobEventsToPortfolio, JOB_KINDS } from "./towerJobFold";
 
 /**
@@ -29,6 +31,9 @@ export const TOWER_JOB_EVENT_LIMIT = 500;
 
 export type FetchJobEvents = (ownerPubkey: string) => Promise<RelayEvent[]>;
 
+/** Same shape as {@link FetchJobEvents}, over the handoff read. */
+export type FetchHandoffEvents = (ownerPubkey: string) => Promise<RelayEvent[]>;
+
 /**
  * The filter the production read actually sends. `kinds` is explicit and
  * required — a filter without it is refused by the relay's p-gate with a 403 —
@@ -50,25 +55,40 @@ async function fetchJobEventsFromRelay(
   return relayClient.fetchEvents(buildJobEventFilter(ownerPubkey));
 }
 
+async function fetchHandoffEventsFromRelay(
+  ownerPubkey: string,
+): Promise<RelayEvent[]> {
+  return relayClient.fetchEvents(buildHandoffEventFilter(ownerPubkey));
+}
+
 /**
  * @param fetchJobEvents injected so the adapter is testable against fixed
  * events without a relay; production callers pass nothing.
  * @param resolveOwnerPubkey injected for the same reason.
+ * @param fetchHandoffEvents injected for the same reason; it reads the edge
+ * projection, which carries the lifecycle kinds too (the parent's outcome is
+ * joined from the same read).
  */
 export function createTowerBuzzSource(
   fetchJobEvents: FetchJobEvents = fetchJobEventsFromRelay,
   resolveOwnerPubkey: () => Promise<string> = () =>
     getIdentity().then((identity) => identity.pubkey),
+  fetchHandoffEvents: FetchHandoffEvents = fetchHandoffEventsFromRelay,
 ): TowerSource {
+  async function resolveOwner(): Promise<string> {
+    const ownerPubkey = await resolveOwnerPubkey();
+    if (typeof ownerPubkey !== "string" || ownerPubkey.length === 0) {
+      // No owner means the query cannot be scoped. That is a failed read, not
+      // an owner with no work.
+      throw new Error("No owner identity available to scope the read.");
+    }
+    return ownerPubkey;
+  }
+
   return {
     async getPortfolio(): Promise<PortfolioLine[]> {
       try {
-        const ownerPubkey = await resolveOwnerPubkey();
-        if (typeof ownerPubkey !== "string" || ownerPubkey.length === 0) {
-          // No owner means the query cannot be scoped. That is a failed read,
-          // not an owner with no work.
-          throw new Error("No owner identity available to scope the read.");
-        }
+        const ownerPubkey = await resolveOwner();
         const events = await fetchJobEvents(ownerPubkey);
         return foldJobEventsToPortfolio(events ?? []);
       } catch (cause) {
@@ -78,6 +98,22 @@ export function createTowerBuzzSource(
         throw new TowerSourceError(
           "adapter_unavailable",
           "Could not read agent work from the relay.",
+          { cause },
+        );
+      }
+    },
+
+    async getHandovers(): Promise<HandoverRow[]> {
+      try {
+        const ownerPubkey = await resolveOwner();
+        const events = await fetchHandoffEvents(ownerPubkey);
+        return foldHandoffEdges(events ?? []);
+      } catch (cause) {
+        // Same rule as the portfolio: an empty handoff list is a successful
+        // read, so a failure must reject rather than borrow that meaning.
+        throw new TowerSourceError(
+          "adapter_unavailable",
+          "Could not read agent handoffs from the relay.",
           { cause },
         );
       }
