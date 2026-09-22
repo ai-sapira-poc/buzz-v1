@@ -334,6 +334,13 @@ def dispatch_pi(role: str, dry_run: bool) -> str:
             })
             _publish_lifecycle(role, job, "done", attempt=attempt,
                                recovered=True, trace_id=handoff.get("trace_id"))
+            # A crash between the prose publish and the edge publish leaves the
+            # handoff recorded but unsurfaced. Recovery must not skip the
+            # projection: re-emitting is safe, the reader folds by edge key.
+            from operator_updates import publish_handoffs
+
+            publish_handoffs(CONTRACTS[role]["identity"], role, job,
+                             handoff.get("trace_id"))
             return "recuperado sin repetir el handoff"
         with telemetry.assignment(job, role) as span:
             trace_id = telemetry.trace_id_of(span)
@@ -365,6 +372,13 @@ def dispatch_pi(role: str, dry_run: bool) -> str:
             "trace_id": record.get("trace_id") or trace_id,
             "artifact": str(artifact),
         })
+        # Project the fact that just landed locally onto the wire, one event
+        # per child, so Tower can draw the edge. Best-effort: a relay failure is
+        # recorded and never fails the delivery.
+        from operator_updates import publish_handoffs
+
+        publish_handoffs(CONTRACTS[role]["identity"], role, job,
+                         record.get("trace_id") or trace_id)
         _finish(job, "done", record["final"])
         event(job, role, "assignment_finished", {
             "attempt": attempt, "trace_id": record.get("trace_id") or trace_id,

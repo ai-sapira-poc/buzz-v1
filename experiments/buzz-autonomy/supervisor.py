@@ -137,7 +137,7 @@ def _execute_pi(job: str, role: str) -> bool:
     from control_plane import pi_harness, telemetry
     from control_plane.tower_project import CHANNEL
     from evidence import handoff
-    from operator_updates import publish_update
+    from operator_updates import publish_handoffs, publish_update
     from reporting import publish
 
     row, attempt = _claim_pi(job)
@@ -179,6 +179,10 @@ def _execute_pi(job: str, role: str) -> bool:
             "trace_id": record.get("trace_id") or trace_id,
             "artifact": str(artifact),
         })
+        # Project the local handoff onto the wire, one event per child. The
+        # same best-effort contract as the lifecycle publish: a relay failure is
+        # recorded, never turned into a failure of the delivered work.
+        publish_handoffs(identity, role, job, record.get("trace_id") or trace_id)
         with database() as db:
             changed = db.execute(
                 "UPDATE jobs SET status='done',result=? WHERE id=? AND status='running'",

@@ -247,6 +247,70 @@ def publish_job_event(publisher: str, role: str, job: str, state: str,
         return False
 
 
+def children_of(job: str) -> list[str]:
+    """The jobs enqueued with this job as parent, oldest first.
+
+    `jobs.parent` is the only durable record of who a job handed to: its single
+    writer is `capabilities`, when an agent enqueues a child. One handoff event
+    is published per child, so the reader draws one row per edge (fan-out 1:N),
+    never one row per parent.
+    """
+    with database() as db:
+        rows = db.execute(
+            "SELECT id FROM jobs WHERE parent=? ORDER BY created, rowid", (job,)
+        ).fetchall()
+    return [str(row["id"]) for row in rows]
+
+
+def _handoff_line(role: str, child: str, detail: object | None) -> str:
+    """One short line naming the edge, in the language the operator reads."""
+    text = f"{label(role)} entrega su conclusión al encargo {child}"
+    if detail:
+        text += ". " + str(detail).replace("\n", " ").strip()[:200]
+    return text[:400]
+
+
+def publish_handoffs(publisher: str, role: str, parent_job: str,
+                     detail: object | None = None) -> list[str]:
+    """Project a job's local handoff fact onto the wire: one event per child.
+
+    `handoff_published` already records the fact in the local log; this is its
+    best-effort projection, exactly as `publish_job_event` is for the lifecycle.
+    A relay that is down must not turn a delivered handoff into a failure of the
+    work — the local row stays the retry record — but the failed projection is
+    recorded too, so a handoff that never reached the surface can be seen rather
+    than rendered as an absence.
+
+    Returns the children whose edge was published.
+    """
+    published: list[str] = []
+    for child in children_of(parent_job):
+        try:
+            from pilot import buzz, config
+
+            owner = config().get("viewer")
+            if not owner:
+                raise RuntimeError("no viewer identity to scope the handoff event")
+            args = ["jobs", "publish", "--state", "handoff", "--job", parent_job,
+                    "--child", child, "--owner", owner, "--role", role,
+                    "--content", _handoff_line(role, child, detail)]
+            channel = os.environ.get("BUZZ_PUBLISH_CHANNEL")
+            if channel:
+                args += ["--channel", channel]
+            receipt = buzz(publisher, args)
+            event(parent_job, publisher, "job_handoff_published", {
+                "child": child, "role": role,
+                "event_id": receipt.get("event_id") if isinstance(receipt, dict) else None,
+            })
+            published.append(child)
+        except Exception as error:  # noqa: BLE001 - the local event is the retry record
+            event(parent_job, publisher, "job_handoff_failed", {
+                "child": child, "role": role,
+                "error": f"{type(error).__name__}: {error}"[:500],
+            })
+    return published
+
+
 # The feed shows the kind's own headline ("Job accepted", "Job failed"), so the
 # content says who and what, not the state again.
 _SAID = {
