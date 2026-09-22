@@ -48,15 +48,19 @@ pub(super) fn nest() -> Nest {
 }
 
 /// git refuses to commit without an identity, and CI machines may have none.
+///
+/// Built through [`git_command`] rather than `Command::new("git")` for the same
+/// reason production calls are: this one runs `git config`, so an inherited
+/// `GIT_DIR` did not merely read the wrong repository — it *wrote* this
+/// fixture's identity into the developer's checkout, where it then authored
+/// real commits as "Buzz Tests". A test helper that escapes the pinning is the
+/// same bug with a worse blast radius.
 pub(super) fn configure_git_identity(repo: &Path) {
     for args in [
         ["config", "user.email", "tests@buzz.local"],
         ["config", "user.name", "Buzz Tests"],
     ] {
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(args)
+        crate::skills_library::writer::git_command(repo, &args)
             .output()
             .expect("git config");
     }
