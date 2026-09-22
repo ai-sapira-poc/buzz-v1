@@ -7,8 +7,8 @@ use crate::skills_library::discovery::library_inventory;
 use crate::skills_library::names::{judge_description, DescriptionVerdict};
 use crate::skills_library::paths::RUNTIME_SKILL_DIRS;
 use crate::skills_library::writer::{
-    commit_skill, copy_skill_tree, create_skill, edit_skill, ensure_repo, is_repo, render_skill_md,
-    write_skill, CommitContext,
+    commit_skill, copy_skill_tree, create_skill, edit_skill, ensure_repo, git_command, is_repo,
+    render_skill_md, write_skill, CommitContext,
 };
 use std::path::PathBuf;
 
@@ -368,4 +368,57 @@ fn a_first_import_into_a_fresh_nest_still_gets_its_own_commit() {
         !baseline.contains("resumir-hilos"),
         "the imported skill must not be swallowed by `estado actual`: {baseline}"
     );
+}
+
+/// Git's location variables win over the path a caller passes.
+///
+/// `git -C <path>` changes directory; `GIT_DIR` overrides discovery entirely, so
+/// a process that inherits it writes to *that* repository whatever path it was
+/// handed. Git exports these to every hook, and this repository's pre-push hook
+/// runs this suite — so under `git push` these commits landed in the
+/// developer's current branch. One measured pre-push gained four commits
+/// authored "Buzz Tests" plus two racing `cannot lock ref 'HEAD'` failures,
+/// while the same tests passed when run directly. The gate was corrupting the
+/// branch it was checking.
+///
+/// Asserted on the command the production path builds rather than by setting
+/// `GIT_DIR` for real: these tests run in parallel threads, so a global
+/// environment variable set by one leaks into the others — the same class of
+/// bug this guard exists for.
+#[test]
+fn a_git_call_is_pinned_to_the_repository_it_was_given() {
+    use std::ffi::OsStr;
+
+    let command = git_command(std::path::Path::new("/tmp/nest"), &["status"]);
+    let cleared: Vec<&OsStr> = command
+        .get_envs()
+        .filter(|(_, value)| value.is_none())
+        .map(|(key, _)| key)
+        .collect();
+
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+    ] {
+        assert!(
+            cleared.contains(&OsStr::new(name)),
+            "{name} still reaches git, so an inherited value would redirect this \
+             call at another repository. Cleared: {cleared:?}"
+        );
+    }
+}
+
+/// The falsifying half: the command must still be aimed at the given path, so a
+/// change that cleared everything and forgot `-C` cannot pass.
+#[test]
+fn a_git_call_still_names_the_repository_path() {
+    use std::ffi::OsStr;
+
+    let command = git_command(std::path::Path::new("/tmp/nest"), &["status"]);
+    let args: Vec<&OsStr> = command.get_args().collect();
+    assert_eq!(args[0], OsStr::new("-C"));
+    assert_eq!(args[1], OsStr::new("/tmp/nest"));
+    assert_eq!(args[2], OsStr::new("status"));
 }
