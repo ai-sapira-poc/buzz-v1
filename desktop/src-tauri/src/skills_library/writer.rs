@@ -197,11 +197,48 @@ impl CommitContext {
     }
 }
 
+/// Environment variables that override where git decides a repository is.
+///
+/// `git -C <path>` changes the working directory; it does **not** override
+/// these. `GIT_DIR` in particular wins over directory discovery, so a process
+/// that inherits it operates on *that* repository no matter which path is
+/// passed. Git exports them to every hook it runs, and this repository's
+/// pre-push hook runs the test suite — so under `git push`, each of these
+/// commits landed in the developer's current branch instead of the temporary
+/// repository the caller named.
+///
+/// Measured: a pre-push of one branch gained four commits authored "Buzz
+/// Tests" and two racing `cannot lock ref 'HEAD'` failures, while the same
+/// tests passed cleanly when run directly. The gate was corrupting the branch
+/// it was checking.
+const GIT_LOCATION_OVERRIDES: [&str; 7] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+];
+
+/// A `git` invocation pinned to `repo` and to nothing else.
+///
+/// Separate from [`run_git`] so the pinning itself is testable without
+/// mutating the process environment — these tests run in parallel threads, and
+/// a global `GIT_DIR` set by one of them would leak into the others, which is
+/// the very failure mode being guarded against.
+pub(crate) fn git_command(repo: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(repo).args(args);
+    // The path this function was given is the only repository it may touch.
+    for name in GIT_LOCATION_OVERRIDES {
+        command.env_remove(name);
+    }
+    command
+}
+
 fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
+    let output = git_command(repo, args)
         .output()
         .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
     if !output.status.success() {
