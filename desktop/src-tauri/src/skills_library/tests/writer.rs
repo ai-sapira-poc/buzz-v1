@@ -54,10 +54,7 @@ fn write_skill_copies_links_and_commits() {
 
     // 3 — one commit, with the contract's message shape.
     assert!(outcome.commit.is_some(), "{:?}", outcome.warnings);
-    let log = std::process::Command::new("git")
-        .arg("-C")
-        .arg(nest.roots.skills_dir())
-        .args(["log", "-1", "--format=%B"])
+    let log = git_command(&nest.roots.skills_dir(), &["log", "-1", "--format=%B"])
         .output()
         .unwrap();
     let message = String::from_utf8_lossy(&log.stdout);
@@ -82,10 +79,7 @@ fn each_skill_gets_its_own_commit() {
         .unwrap();
     }
 
-    let log = std::process::Command::new("git")
-        .arg("-C")
-        .arg(nest.roots.skills_dir())
-        .args(["log", "--format=%s"])
+    let log = git_command(&nest.roots.skills_dir(), &["log", "--format=%s"])
         .output()
         .unwrap();
     let subjects: Vec<String> = String::from_utf8_lossy(&log.stdout)
@@ -321,10 +315,7 @@ fn a_first_import_into_a_fresh_nest_still_gets_its_own_commit() {
     };
     configure_git_identity(&skills_dir);
 
-    let subjects: Vec<String> = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&skills_dir)
-        .args(["log", "--format=%s"])
+    let subjects: Vec<String> = git_command(&skills_dir, &["log", "--format=%s"])
         .output()
         .map(|out| {
             String::from_utf8_lossy(&out.stdout)
@@ -356,10 +347,7 @@ fn a_first_import_into_a_fresh_nest_still_gets_its_own_commit() {
     );
 
     // And the baseline snapshot holds only what predated the import.
-    let baseline = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&skills_dir)
-        .args(["show", "--stat", "--format=", "HEAD~1"])
+    let baseline = git_command(&skills_dir, &["show", "--stat", "--format=", "HEAD~1"])
         .output()
         .unwrap();
     let baseline = String::from_utf8_lossy(&baseline.stdout);
@@ -385,6 +373,18 @@ fn a_first_import_into_a_fresh_nest_still_gets_its_own_commit() {
 /// `GIT_DIR` for real: these tests run in parallel threads, so a global
 /// environment variable set by one leaks into the others — the same class of
 /// bug this guard exists for.
+///
+/// The end-to-end check is a command, not a test, for that reason:
+///
+/// ```text
+/// GIT_DIR=$PWD/.git cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
+/// ```
+///
+/// Before this module was pinned, that reproduced the failure exactly: three
+/// tests red and the repository's own HEAD moved. It now passes 3268 tests with
+/// HEAD untouched. Every `git` call here goes through `git_command`, including
+/// the ones that only read — a raw `Command::new("git")` in an assertion reads
+/// the wrong repository just as surely as one in production writes to it.
 #[test]
 fn a_git_call_is_pinned_to_the_repository_it_was_given() {
     use std::ffi::OsStr;
