@@ -71,22 +71,22 @@ no a `running`.
 | El piloto mapea su vocabulario al del CLI | `operator_updates.py:214-222` (`JOB_EVENT_STATE`) |
 | El piloto emite el evento | `publish_job_event` `operator_updates.py:225-259` (args en `:242-244`) |
 | Quién lo llama | `publish_update` `operator_updates.py:418-445` (llamada en `:434`) |
-| Emisores de ciclo de vida | `_publish_lifecycle` `control_plane/launch_tower.py:190-219`; llamadas en `:287` (`started`), `:297` (`failed`/`cancelled`), `:301` (`cancelled`), `:303` (`done`), `:335` (`done`), `:348` (`started`), `:386` (`done`), `:396` (`failed`/`cancelled`), `:418` (`blocked`) |
+| Emisores de ciclo de vida | `_publish_lifecycle` `control_plane/launch_tower.py:190-221`; llamadas en `:287` (`started`), `:297` (`failed`/`cancelled`), `:301` (`cancelled`), `:303` (`done`), `:335` (`done`), `:348` (`started`), `:386` (`done`), `:396` (`failed`/`cancelled`), `:418` (`blocked`) |
 
 **Regla de desempate (afecta a qué estado muestra una tarjeta):** el plegado elige
 el evento **más nuevo** por `created_at`, y a igualdad de segundo desempata por
 progresión del ciclo de vida (`towerJobFold.ts:46-52`, `:75-82`). Un `job` sin
 tag `job` o con `created_at` no finito se descarta, no se adivina
-(`towerJobFold.ts:107-114`).
+(`towerJobFold.ts:120-127`).
 
 ---
 
 ## 3. «Bloqueado»: sin productor de ciclo de vida, y hoy llega como `running`
 
-**No es un `WorkState`.** La unión de estados (`desktop/src/features/tower/domain/portfolio.ts:63-68`)
+**No es un `WorkState`.** La unión de estados (`desktop/src/features/tower/domain/portfolio.ts:60-65`)
 es `requested | running | done | failed | cancelled`; no hay miembro `blocked`. El
 «bloqueado» de la superficie es una **celda aparte** (`PortfolioBlocked`,
-`portfolio.ts:39-42`).
+`portfolio.ts:37-40`).
 
 **Dos productores etiquetan `blocked`, y los dos toman el alias:**
 
@@ -110,7 +110,7 @@ blocked: { count: failed ? 1 : 0, basis: "observed" },
 
 Para todo encargo no fallado la celda afirma «0 bloqueados, observado» — un cero
 presentado como medición. El propio modelo neutro dice lo contrario:
-`portfolio.ts:19-23` documenta que, sin productor mecánico, los adaptadores
+`portfolio.ts:21-23` documenta que, sin productor mecánico, los adaptadores
 **deben** devolver `basis: null` y la UI no debe fabricar la detección.
 
 **Decisión (alineada con el producto): S1 no dibuja la celda de bloqueo.** Ni
@@ -161,8 +161,8 @@ superficie. No confundirlo con la celda de bloqueo: son cosas distintas.
   owner, `limit 500` (`TOWER_JOB_EVENT_LIMIT`, `:34`).
 - **Admisión de escritura del relay:** committed en `ingest.rs:554-561`
   (43001–43008 → `MessagesWrite`).
-- **La UI no aprende kinds:** contrato en `towerJobFold.ts:19-22` y
-  `towerBuzzSource.ts:29`.
+- **La UI no aprende kinds:** contrato en `towerJobFold.ts:18-21` y
+  `towerBuzzSource.ts:30`.
 - **El puerto rechaza en fallo, nunca `[]`:** `TowerSource.ts:9-13` y `:15-21`;
   el adaptador lanza `TowerSourceError("adapter_unavailable", ...)` en
   `towerBuzzSource.ts:144-176`.
@@ -178,8 +178,8 @@ superficie. No confundirlo con la celda de bloqueo: son cosas distintas.
   reproducido).
 - **El tag `trace` sigue sin emitirse** (inferido de la lectura):
   `publish_job_event` construye los args sin `--trace` (`operator_updates.py:242-244`)
-  y `publish_update` no lo pasa (`:434`), aunque el CLI lo acepta (`jobs.rs:91-96`,
-  leído del informe previo). No lo vi publicado.
+  y `publish_update` no lo pasa (`:434`), aunque el CLI lo declara (`lib.rs:806-808`) y
+  construye el tag (`jobs.rs:227-230`). No lo vi publicado.
 - **`43008` no tiene consumidor de UI** (grep). Si el diseño de S1 lo espera, falta.
 
 ---
