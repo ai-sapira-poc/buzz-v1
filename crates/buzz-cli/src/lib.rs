@@ -783,12 +783,17 @@ pub enum CanvasCmd {
 pub enum JobsCmd {
     /// Publish one lifecycle event for one job
     Publish {
-        /// requested | accepted | progress | result | cancelled | error
+        /// requested | accepted | progress | result | cancelled | error | handoff
         #[arg(long)]
         state: String,
-        /// Job id correlating this assignment's whole lifecycle
+        /// Job id correlating this assignment's whole lifecycle. For a handoff
+        /// this is the **parent** that delivers.
         #[arg(long)]
         job: String,
+        /// Child job id, for `--state handoff` only: one event per edge, so the
+        /// reader draws one row per child. Refused on the six lifecycle states.
+        #[arg(long)]
+        child: Option<String>,
         /// Owner pubkey (64-char hex); this is what puts it in their feed
         #[arg(long)]
         owner: String,
@@ -801,6 +806,11 @@ pub enum JobsCmd {
         /// OpenTelemetry trace id, when one exists
         #[arg(long)]
         trace: Option<String>,
+        /// How a failure ended: `failed` (nothing delivered) or
+        /// `failed_with_delivery` (a gate-validated deliverable exists but was
+        /// not accepted). Only meaningful with `--state error`.
+        #[arg(long)]
+        outcome: Option<String>,
         /// One short line, already in business language
         #[arg(long, default_value = "")]
         content: String,

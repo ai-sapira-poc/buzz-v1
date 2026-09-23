@@ -178,6 +178,14 @@ def run(job):
         from design_guard import completion
         completion(job)
         published = publish(role, job, final)
+        # The delegating role is Hermes, which never reaches the Pi emit points
+        # in launch_tower/supervisor. Without this its handoffs are recorded
+        # locally and never drawn, so Tower reads a fact it holds as an absence.
+        # Same best-effort contract as the lifecycle publish: a relay that is
+        # down is recorded, never turned into a failure of delivered work.
+        from operator_updates import publish_handoffs
+
+        publish_handoffs(role, role, job, trace_id)
         export_trace(job)
         with database() as db:
             db.execute("UPDATE jobs SET status='done',result=? WHERE id=?", (final, job))

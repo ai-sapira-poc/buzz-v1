@@ -29,6 +29,10 @@ export const KIND_JOB_PROGRESS = 43003;
 export const KIND_JOB_RESULT = 43004;
 export const KIND_JOB_CANCEL = 43005;
 export const KIND_JOB_ERROR = 43006;
+// A handoff edge: the parent job published its conclusion to a child job. One
+// event per edge (fan-out 1:N). It is not a lifecycle state, so it is kept out
+// of the fold's STATE_BY_KIND; the edge reader lives in towerHandoffEdges.ts.
+export const KIND_JOB_HANDOFF = 43007;
 export const KIND_FORUM_POST = 45001;
 export const KIND_FORUM_COMMENT = 45003;
 export const KIND_APPROVAL_REQUEST = 46010;

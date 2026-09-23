@@ -80,6 +80,77 @@ class TowerLauncher(unittest.TestCase):
         self.assertLess(actions.index("assignment_started"),
                          actions.index("handoff_published"))
 
+    def test_a_delivered_handoff_is_projected_to_the_wire_for_each_child(self):
+        # The local `handoff_published` fact already existed; nothing carried it
+        # to the surface, so Tower could never draw the edge. One event per
+        # child is what makes the row count the edge count.
+        pilot.enqueue("coder", "brief", "tower-coder", parent="tower-arquitecto")
+        published, publish = self._publish_spy()
+        calls = []
+
+        def buzz(role, args):
+            calls.append(list(args))
+            return {"event_id": "edge-1"}
+
+        record = {"final": "architectural handoff", "trace_id": "trace-1",
+                  "usage": {}, "events": 3}
+        with patch("control_plane.pi_harness.run", return_value=record), \
+                patch("reporting.publish", side_effect=publish), \
+                patch("reporting.speak", side_effect=publish), \
+                patch("pilot.config", return_value={"viewer": "a" * 64}), \
+                patch("pilot.buzz", side_effect=buzz):
+            launch_tower.dispatch_pi("arquitecto", dry_run=False)
+
+        # The lifecycle publishes share this seam; only the handoff edge is the
+        # one this test is about.
+        handoff_calls = [
+            args for args in calls if args[args.index("--state") + 1] == "handoff"
+        ]
+        self.assertEqual(len(handoff_calls), 1)
+        args = handoff_calls[0]
+        self.assertEqual(args[args.index("--job") + 1], "tower-arquitecto")
+        self.assertEqual(args[args.index("--child") + 1], "tower-coder")
+        with pilot.database() as db:
+            actions = [r[0] for r in db.execute(
+                "SELECT action FROM events WHERE job='tower-arquitecto' ORDER BY seq"
+            )]
+        self.assertIn("job_handoff_published", actions)
+
+    def test_a_recovered_handoff_still_projects_the_edge(self):
+        # A crash between the prose publish and the edge publish leaves the
+        # handoff recorded but unsurfaced. Recovery must not skip the
+        # projection; re-emitting is safe because the reader folds by edge key.
+        pilot.enqueue("coder", "brief", "tower-coder", parent="tower-arquitecto")
+        artifact = launch_tower.ARTIFACTS / "tower-arquitecto.attempt-1.md"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text("architectural handoff", encoding="utf-8")
+        pilot.event("tower-arquitecto", "arquitecto", "handoff_published", {
+            "event_id": "prose-1", "trace_id": "trace-1",
+            "artifact": str(artifact),
+        })
+        calls = []
+
+        def buzz(role, args):
+            calls.append(list(args))
+            return {"event_id": "edge-1"}
+
+        published, publish = self._publish_spy()
+        with patch("control_plane.pi_harness.run",
+                   side_effect=AssertionError("must recover, not re-run")), \
+                patch("reporting.publish", side_effect=publish), \
+                patch("reporting.speak", side_effect=publish), \
+                patch("pilot.config", return_value={"viewer": "a" * 64}), \
+                patch("pilot.buzz", side_effect=buzz):
+            result = launch_tower.dispatch_pi("arquitecto", dry_run=False)
+
+        self.assertIn("recuperado", result)
+        handoff_calls = [
+            args for args in calls if args[args.index("--state") + 1] == "handoff"
+        ]
+        self.assertEqual(len(handoff_calls), 1)
+        self.assertEqual(handoff_calls[0][handoff_calls[0].index("--child") + 1],
+                         "tower-coder")
+
     def test_pi_failure_is_persisted_and_visible(self):
         published, publish = self._publish_spy()
         failure = subprocess.TimeoutExpired("pi", launch_tower.PI_TIMEOUT)

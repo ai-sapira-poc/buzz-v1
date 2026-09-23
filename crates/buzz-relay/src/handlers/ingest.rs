@@ -22,12 +22,12 @@ use buzz_core::kind::{
     KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES, KIND_HUDDLE_PARTICIPANT_JOINED,
     KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED, KIND_IA_ARCHIVE_REQUEST,
     KIND_IA_UNARCHIVE_REQUEST, KIND_JOB_ACCEPTED, KIND_JOB_CANCEL, KIND_JOB_ERROR,
-    KIND_JOB_PROGRESS, KIND_JOB_REQUEST, KIND_JOB_RESULT, KIND_LONG_FORM, KIND_MANAGED_AGENT,
-    KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN,
-    KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN,
-    KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT,
-    KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST,
-    KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    KIND_JOB_HANDOFF, KIND_JOB_PROGRESS, KIND_JOB_REQUEST, KIND_JOB_RESULT, KIND_LONG_FORM,
+    KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION,
+    KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
+    KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP,
+    KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA,
+    KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
     KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
     KIND_PRESENCE_UPDATE, KIND_PRIVATE_MANAGED_AGENT, KIND_PRODUCT_FEEDBACK, KIND_PROFILE,
     KIND_PROJECT, KIND_REACTION, KIND_READ_STATE, KIND_REPORT, KIND_STREAM_MESSAGE,
@@ -555,7 +555,8 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         | KIND_JOB_PROGRESS
         | KIND_JOB_RESULT
         | KIND_JOB_CANCEL
-        | KIND_JOB_ERROR => Ok(Scope::MessagesWrite),
+        | KIND_JOB_ERROR
+        | KIND_JOB_HANDOFF => Ok(Scope::MessagesWrite),
         _ => Err("restricted: unknown event kind"),
     }
 }
@@ -4041,6 +4042,29 @@ mod postgres_tests {
     fn unknown_kind_rejected() {
         let dummy = make_dummy_event();
         assert!(required_scope_for_kind(99999, &dummy).is_err());
+    }
+
+    #[test]
+    fn the_job_protocol_kinds_are_admitted() {
+        // The seven agent-job kinds are channel-scoped activity. Removing any
+        // one from the scope match (43007 included) must fail here: the relay
+        // would reject the write as `restricted: unknown event kind`.
+        let dummy = make_dummy_event();
+        for kind in [
+            KIND_JOB_REQUEST,
+            KIND_JOB_ACCEPTED,
+            KIND_JOB_PROGRESS,
+            KIND_JOB_RESULT,
+            KIND_JOB_CANCEL,
+            KIND_JOB_ERROR,
+            KIND_JOB_HANDOFF,
+        ] {
+            assert_eq!(
+                required_scope_for_kind(kind, &dummy).ok(),
+                Some(Scope::MessagesWrite),
+                "kind {kind} should require MessagesWrite scope"
+            );
+        }
     }
 
     #[test]

@@ -10,6 +10,11 @@
 //! This is the producer. It is deliberately thin: the caller already knows the
 //! state, so the command does not infer one. The kind IS the state, which keeps
 //! readers from parsing prose to find out what happened.
+//!
+//! The kind is not always enough on its own: a failure that left a validated
+//! deliverable and a failure that left nothing are both kind 43006. `--outcome`
+//! carries that difference in an `outcome` tag, so it survives the wire instead
+//! of living only in the content line.
 
 use nostr::{EventBuilder, Kind, Tag};
 
@@ -27,13 +32,26 @@ const STATES: &[(&str, u16)] = &[
     ("error", 43006),
 ];
 
+/// The one event this command publishes that is not a lifecycle state.
+///
+/// A handoff is an **edge** between two jobs — the parent delivered its
+/// conclusion to the child — not a state of either. It is deliberately not a
+/// member of [`STATES`]: the fold's contract is "the kind IS the state", and a
+/// reader that found a handoff among the states would fold it as one.
+const HANDOFF_STATE: &str = "handoff";
+const HANDOFF_KIND: u16 = 43007;
+
 fn kind_for(state: &str) -> Result<Kind, CliError> {
+    if state == HANDOFF_STATE {
+        return Ok(Kind::from(HANDOFF_KIND));
+    }
     STATES
         .iter()
         .find(|(name, _)| *name == state)
         .map(|(_, kind)| Kind::from(*kind))
         .ok_or_else(|| {
-            let names: Vec<&str> = STATES.iter().map(|(name, _)| *name).collect();
+            let mut names: Vec<&str> = STATES.iter().map(|(name, _)| *name).collect();
+            names.push(HANDOFF_STATE);
             CliError::Usage(format!(
                 "unknown state '{state}'; expected one of: {}",
                 names.join(", ")
@@ -41,41 +59,104 @@ fn kind_for(state: &str) -> Result<Kind, CliError> {
         })
 }
 
-/// Publish one lifecycle event for one job.
+/// The failure outcomes a reader can tell apart on the wire, as the CLI spells
+/// them.
 ///
-/// `owner` is what puts the event in a person's feed (the feed query scopes by
-/// `#p`), `channel` is the NIP-29 group scope, and `job` correlates the whole
-/// lifecycle of one assignment across its six possible states.
-#[allow(clippy::too_many_arguments)]
-pub async fn cmd_publish(
-    client: &BuzzClient,
-    state: &str,
-    job: &str,
+/// `failed_with_delivery` is the control plane's own name for the case
+/// (`operator_updates.FAILED_WITH_DELIVERY`): the budget ran out with a
+/// gate-validated deliverable on disk and nothing accepted. Kind 43006 says
+/// "failed" for both, so a reader that only has the kind re-commissions work
+/// already paid for. Reusing the control plane's word rather than inventing a
+/// wire-only one is what keeps the two halves from drifting apart.
+const OUTCOMES: &[&str] = &["failed", "failed_with_delivery"];
+
+/// The only state an outcome describes: a job that failed. Named rather than
+/// repeated as a literal at the check, so renumbering in [`STATES`] is one edit.
+const FAILURE_KIND: u16 = 43006;
+
+/// Resolve `--outcome` into the value that goes on the wire, or `None` when the
+/// caller made no claim.
+///
+/// Refused on any state but `error`: an outcome tag that contradicts the kind is
+/// worse than no tag, because the reader this exists for trusts it.
+fn resolve_outcome(kind: Kind, outcome: Option<&str>) -> Result<Option<&'static str>, CliError> {
+    let Some(outcome) = outcome else {
+        return Ok(None);
+    };
+    let outcome = OUTCOMES
+        .iter()
+        .copied()
+        .find(|name| *name == outcome)
+        .ok_or_else(|| {
+            CliError::Usage(format!(
+                "unknown outcome '{outcome}'; expected one of: {}",
+                OUTCOMES.join(", ")
+            ))
+        })?;
+    if kind.as_u16() != FAILURE_KIND {
+        return Err(CliError::Usage(
+            "outcome describes how a job failed; it is only meaningful with --state error".into(),
+        ));
+    }
+    Ok(Some(outcome))
+}
+
+/// What a `--child` means for this state: the receiver of a handoff, or a
+/// caller error.
+///
+/// Split out of [`cmd_publish`] so the refusal can be asserted without a relay.
+/// A handoff with no child is an edge with one end — undrawable by the reader —
+/// so it is refused before anything is signed.
+fn resolve_child<'a>(state: &str, child: Option<&'a str>) -> Result<Option<&'a str>, CliError> {
+    if state == HANDOFF_STATE {
+        let Some(child) = child else {
+            return Err(CliError::Usage(
+                "a handoff names the child it delivers to: --child is required with --state handoff"
+                    .into(),
+            ));
+        };
+        if child.is_empty() || child.len() > 160 {
+            return Err(CliError::Usage(
+                "child job id must be 1..160 characters".into(),
+            ));
+        }
+        return Ok(Some(child));
+    }
+    if child.is_some() {
+        return Err(CliError::Usage(
+            "child describes a handoff edge; it is only meaningful with --state handoff".into(),
+        ));
+    }
+    Ok(None)
+}
+
+/// Every tag one lifecycle event carries.
+///
+/// Split out of [`cmd_publish`] so the tags a reader actually sees can be
+/// asserted without a relay. The regression this guards — the delivery
+/// distinction silently falling off the wire — is invisible in prose and would
+/// otherwise only be found by a reader who had already been misled by it.
+fn lifecycle_tags(
     owner: &str,
+    job: &str,
+    child: Option<&str>,
     channel: Option<&str>,
     role: Option<&str>,
     trace: Option<&str>,
-    content: &str,
-) -> Result<(), CliError> {
-    let kind = kind_for(state)?;
-    validate_hex64(owner)?;
-    if job.is_empty() || job.len() > 160 {
-        return Err(CliError::Usage(
-            "job id must be 1..160 characters; it correlates one assignment's whole lifecycle"
-                .into(),
-        ));
-    }
-    if content.len() > 4000 {
-        return Err(CliError::Usage(
-            "content must be at most 4000 characters; cite an artifact instead of pasting it"
-                .into(),
-        ));
-    }
-
+    outcome: Option<&str>,
+) -> Result<Vec<Tag>, CliError> {
     let mut tags = vec![
         Tag::parse(["p", owner]).map_err(|e| CliError::Usage(format!("invalid owner tag: {e}")))?,
         Tag::parse(["job", job]).map_err(|e| CliError::Other(format!("invalid job tag: {e}")))?,
     ];
+    if let Some(child) = child {
+        // The edge's other end. Reader-side this is what yields one row per
+        // child rather than one per parent.
+        tags.push(
+            Tag::parse(["child", child])
+                .map_err(|e| CliError::Other(format!("invalid child tag: {e}")))?,
+        );
+    }
     if let Some(channel) = channel {
         tags.push(
             Tag::parse(["h", channel])
@@ -94,6 +175,55 @@ pub async fn cmd_publish(
                 .map_err(|e| CliError::Usage(format!("invalid trace tag: {e}")))?,
         );
     }
+    if let Some(outcome) = outcome {
+        // A readable tag, not a single-letter companion: nothing subscribes by
+        // outcome — the reader already holds the event, which is what makes it
+        // the same event as the plain failure — and a `t` value would land in
+        // the channel's topic list, which is for topics.
+        tags.push(
+            Tag::parse(["outcome", outcome])
+                .map_err(|e| CliError::Other(format!("invalid outcome tag: {e}")))?,
+        );
+    }
+    Ok(tags)
+}
+
+/// Publish one lifecycle event for one job.
+///
+/// `owner` is what puts the event in a person's feed (the feed query scopes by
+/// `#p`), `channel` is the NIP-29 group scope, and `job` correlates the whole
+/// lifecycle of one assignment across its six possible states.
+#[allow(clippy::too_many_arguments)]
+pub async fn cmd_publish(
+    client: &BuzzClient,
+    state: &str,
+    job: &str,
+    child: Option<&str>,
+    owner: &str,
+    channel: Option<&str>,
+    role: Option<&str>,
+    trace: Option<&str>,
+    outcome: Option<&str>,
+    content: &str,
+) -> Result<(), CliError> {
+    let kind = kind_for(state)?;
+    let outcome = resolve_outcome(kind, outcome)?;
+    let child = resolve_child(state, child)?;
+    validate_hex64(owner)?;
+    if job.is_empty() || job.len() > 160 {
+        return Err(CliError::Usage(
+            "job id must be 1..160 characters; it correlates one assignment's whole lifecycle"
+                .into(),
+        ));
+    }
+    if content.len() > 4000 {
+        return Err(CliError::Usage(
+            "content must be at most 4000 characters; cite an artifact instead of pasting it"
+                .into(),
+        ));
+    }
+
+    let tags = lifecycle_tags(owner, job, child, channel, role, trace, outcome)?;
 
     let event = client.sign_event(EventBuilder::new(kind, content).tags(tags))?;
     let resp = client.submit_event(event).await?;
@@ -108,19 +238,23 @@ pub async fn dispatch(cmd: crate::JobsCmd, client: &BuzzClient) -> Result<(), Cl
             state,
             job,
             owner,
+            child,
             channel,
             role,
             trace,
+            outcome,
             content,
         } => {
             cmd_publish(
                 client,
                 &state,
                 &job,
+                child.as_deref(),
                 &owner,
                 channel.as_deref(),
                 role.as_deref(),
                 trace.as_deref(),
+                outcome.as_deref(),
                 &content,
             )
             .await
@@ -175,5 +309,139 @@ mod tests {
             assert!((43001..=43006).contains(kind), "kind {kind} left the range");
         }
         assert_eq!(STATES.len(), 6, "the protocol has exactly six states");
+    }
+
+    /// The value of the first tag named `name`, the way a relay reader reads it.
+    fn tag_value<'a>(tags: &'a [Tag], name: &str) -> Option<&'a str> {
+        tags.iter()
+            .find(|tag| tag.as_slice().first().map(String::as_str) == Some(name))
+            .and_then(|tag| tag.as_slice().get(1).map(String::as_str))
+    }
+
+    const OWNER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn failure_tags(outcome: Option<&str>) -> Vec<Tag> {
+        lifecycle_tags(
+            OWNER,
+            "job-1",
+            None,
+            None,
+            Some("coder"),
+            None,
+            resolve_outcome(kind_for("error").unwrap(), outcome).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_failure_with_a_validated_delivery_says_so_on_the_wire() {
+        // The reason this option exists: kind 43006 is the same event for
+        // "delivered nothing" and "left a gate-validated artifact and ran out
+        // of budget". Dropping the tag from `lifecycle_tags` must fail here.
+        let tags = failure_tags(Some("failed_with_delivery"));
+        assert_eq!(
+            tag_value(&tags, "outcome"),
+            Some("failed_with_delivery"),
+            "tags: {tags:?}"
+        );
+    }
+
+    #[test]
+    fn a_plain_failure_can_say_that_too() {
+        // The falsifiable half: if only the delivery case were expressible,
+        // absence would have to mean "nothing delivered", and a producer that
+        // never heard of the flag would read as a claim it did not make.
+        assert_eq!(
+            tag_value(&failure_tags(Some("failed")), "outcome"),
+            Some("failed")
+        );
+    }
+
+    #[test]
+    fn no_outcome_means_no_claim_rather_than_nothing_delivered() {
+        assert_eq!(tag_value(&failure_tags(None), "outcome"), None);
+    }
+
+    #[test]
+    fn an_unknown_outcome_lists_the_ones_that_exist() {
+        let error = resolve_outcome(kind_for("error").unwrap(), Some("delivered")).unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("delivered"), "{message}");
+        for outcome in OUTCOMES {
+            assert!(message.contains(outcome), "missing {outcome} in: {message}");
+        }
+    }
+
+    #[test]
+    fn an_outcome_outside_a_failure_is_refused() {
+        // A tag that contradicts the kind would mislead exactly the reader this
+        // exists for, so the caller is told before anything is signed.
+        let error = resolve_outcome(kind_for("result").unwrap(), Some("failed")).unwrap_err();
+        assert!(error.to_string().contains("--state error"), "{error}");
+    }
+
+    #[test]
+    fn the_outcome_check_follows_the_error_kind() {
+        assert_eq!(kind_for("error").unwrap().as_u16(), FAILURE_KIND);
+    }
+
+    #[test]
+    fn a_handoff_maps_to_the_handoff_kind() {
+        assert_eq!(kind_for("handoff").unwrap().as_u16(), HANDOFF_KIND);
+        assert!(
+            (43000..=43999).contains(&HANDOFF_KIND),
+            "left the job range"
+        );
+    }
+
+    #[test]
+    fn handoff_is_not_one_of_the_six_lifecycle_states() {
+        // An edge is not a state. Folding it into STATES would let a reader that
+        // switches on the kind's meaning treat a handoff as a state of a job.
+        assert!(!STATES.iter().any(|(name, _)| *name == HANDOFF_STATE));
+        assert_eq!(STATES.len(), 6, "the protocol has exactly six states");
+    }
+
+    #[test]
+    fn a_handoff_requires_a_child() {
+        // Removing this guard must fail here: a handoff with no receiver is an
+        // edge with one end, which the reader cannot draw.
+        assert!(resolve_child("handoff", None).is_err());
+        assert!(resolve_child("handoff", Some("")).is_err());
+        assert_eq!(
+            resolve_child("handoff", Some("child-1")).unwrap(),
+            Some("child-1")
+        );
+    }
+
+    #[test]
+    fn a_lifecycle_state_refuses_a_child() {
+        // A child tag on a lifecycle event would claim an edge the producer did
+        // not publish.
+        assert!(resolve_child("result", Some("child-1")).is_err());
+        assert_eq!(resolve_child("result", None).unwrap(), None);
+    }
+
+    #[test]
+    fn a_handoff_carries_the_child_tag_on_the_wire() {
+        // Removing the `child` push from `lifecycle_tags` must fail here: the
+        // edge would arrive with no receiver.
+        let tags = lifecycle_tags(
+            OWNER,
+            "tower-architect",
+            resolve_child("handoff", Some("tower-coder")).unwrap(),
+            Some("chan"),
+            Some("architect"),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(tag_value(&tags, "job"), Some("tower-architect"));
+        assert_eq!(tag_value(&tags, "child"), Some("tower-coder"));
+    }
+
+    #[test]
+    fn a_lifecycle_event_carries_no_child_tag() {
+        assert_eq!(tag_value(&failure_tags(None), "child"), None);
     }
 }

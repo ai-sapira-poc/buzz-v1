@@ -36,6 +36,37 @@ class CompletionBoundary(unittest.TestCase):
             self.assertEqual(db.execute("SELECT status FROM jobs WHERE id='parent'").fetchone()[0], "failed")
             self.assertEqual(db.execute("SELECT attempts FROM jobs WHERE id='child'").fetchone()[0], 0)
 
+    def test_a_hermes_handoff_reaches_the_wire_for_each_child(self):
+        """The delegating role is Hermes, so the Pi emit points never fire.
+
+        Measured against the pilot database, every job that has children is a
+        `maestro` job on the Hermes harness — two thirds of the parents are
+        `tower-maestro-*` and the rest are scheduled `maestro-*` ids. A producer
+        wired only into `dispatch_pi` / `_execute_pi` therefore projects
+        nothing at all, and the surface reports a fact the system recorded as
+        "no hay relevos". The edge has to be emitted here, where the Hermes
+        handoff is itself recorded.
+        """
+        import operator_updates
+
+        pilot.enqueue("maestro", "hand-off", "parent")
+        pilot.enqueue("coder", "brief", "child-a", parent="parent")
+        pilot.enqueue("designer", "brief", "child-b", parent="parent")
+        result = {"final_response": "handoff text", "completed": True}
+        agent = SimpleNamespace(run_conversation=lambda *a, **k: result)
+        projected = []
+        with patch.object(worker, "make_agent", return_value=agent), \
+                patch.object(worker, "publish", return_value={}), \
+                patch.object(operator_updates, "publish_handoffs",
+                             side_effect=lambda *a, **k: projected.append(a)):
+            worker.run("parent")
+
+        self.assertEqual(len(projected), 1, "one projection per completed job")
+        args = projected[0]
+        # (publisher, role, job) — the edge is emitted for the job that finished,
+        # which is the one holding the children.
+        self.assertEqual(args[2], "parent")
+
     def _record_receipt(self, job, relative, text):
         target = pilot.ROOT / "artifacts" / relative
         target.parent.mkdir(parents=True, exist_ok=True)

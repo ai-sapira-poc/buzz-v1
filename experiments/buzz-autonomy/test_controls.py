@@ -2,6 +2,7 @@
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 import pilot
 import capabilities
@@ -271,4 +272,86 @@ class TheWorkIsReadableByAProgramToo(unittest.TestCase):
         line = operator_updates._line("designer", "failed", "max_iterations_reached(32/32)")
         self.assertIn("no ha podido entregar", line)
         self.assertNotIn("failed", line)
+        self.assertLessEqual(len(line), 400)
+
+
+class TheHandoffEdgeReachesTheSurface(unittest.TestCase):
+    """The handoff was recorded (`handoff_published`) but reached no surface:
+    nothing published it. Kind 43007 exists and the desktop draws the edge, so
+    without a producer the surface would say "no hay relevos" for a fact the
+    system did record.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.root_patch = patch.object(pilot, "ROOT", self.root)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
+        pilot.enqueue("product", "brief", "parent-job")
+        pilot.enqueue("coder", "brief", "child-a", parent="parent-job")
+        pilot.enqueue("designer", "brief", "child-b", parent="parent-job")
+
+    def _capture(self):
+        calls = []
+
+        def buzz(role, args):
+            calls.append(list(args))
+            return {"event_id": f"edge-{len(calls)}"}
+
+        return calls, buzz
+
+    def test_one_event_per_child_never_one_per_parent(self):
+        import operator_updates
+
+        calls, buzz = self._capture()
+        with patch("pilot.config", return_value={"viewer": "a" * 64}), \
+                patch("pilot.buzz", side_effect=buzz):
+            published = operator_updates.publish_handoffs(
+                "product", "product", "parent-job")
+
+        self.assertEqual(published, ["child-a", "child-b"])
+        self.assertEqual(len(calls), 2, "fan-out is one edge per child")
+        for args, child in zip(calls, ["child-a", "child-b"]):
+            self.assertEqual(args[args.index("--job") + 1], "parent-job")
+            self.assertEqual(args[args.index("--child") + 1], child)
+            self.assertEqual(args[args.index("--state") + 1], "handoff")
+
+    def test_a_relay_failure_is_recorded_not_rendered_as_absence(self):
+        # The work is already delivered; a publication that did not land must
+        # leave a row that says so, never a silent gap the surface reads as
+        # "no handoff".
+        import operator_updates
+
+        recorded = []
+        with patch.object(operator_updates, "event",
+                          lambda *a, **k: recorded.append((a[2], k.get("data", a[3])))), \
+                patch("pilot.config", return_value={"viewer": "a" * 64}), \
+                patch("pilot.buzz", side_effect=RuntimeError("relay down")):
+            published = operator_updates.publish_handoffs(
+                "product", "product", "parent-job")
+
+        self.assertEqual(published, [])
+        actions = [action for action, _ in recorded]
+        self.assertIn("job_handoff_failed", actions)
+        self.assertEqual(actions.count("job_handoff_failed"), 2)
+
+    def test_a_job_with_no_children_publishes_nothing(self):
+        import operator_updates
+
+        calls, buzz = self._capture()
+        with patch("pilot.config", return_value={"viewer": "a" * 64}), \
+                patch("pilot.buzz", side_effect=buzz):
+            published = operator_updates.publish_handoffs(
+                "product", "product", "child-a")
+
+        self.assertEqual(published, [])
+        self.assertEqual(calls, [])
+
+    def test_the_line_names_the_child_and_stays_business_language(self):
+        import operator_updates
+
+        line = operator_updates._handoff_line("product", "child-a", None)
+        self.assertIn("child-a", line)
         self.assertLessEqual(len(line), 400)
