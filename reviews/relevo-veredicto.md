@@ -1,208 +1,228 @@
-# El relevo — veredicto de revisión (revisor, ejecutando, no leyendo)
+# El relevo — veredicto independiente (revisor, ejecutando, no leyendo)
 
 **Artefacto revisado:** rama `agent/coder-dispatch`, commit
-`aa1fc86c4af221bb2e855e320a6ab2e58e69c927` «feat(tower): show agent handoffs end
-to end» (16 ficheros, +1042/−25), más su base `59b9d8eff`.
-**Método:** riesgos derivados del requisito ANTES de leer el commit; después los
-tests del coder EJECUTADOS, tres mutaciones de guard, y un sondeo propio de la
-rama de error con datos previos.
-**Veredicto corto:** el camino feliz existe, está probado y sus guardas son
-falsables (3/3 mutaciones hacen fallar un test). **No apruebo la puerta 3**: con
-los datos que produce hoy el piloto la sección dirime un caso que no puede
-distinguir (F1), y un refresco fallido sobre filas existentes es invisible (F2,
-ejecutado).
+`7e56ef224541c8c97232aa699100df7946bbcf8f` «fix(pilot): emit the Hermes handoff
+edge where the delegating role finishes» (4 commits desde `main`:
+`aa1fc86c4` UI, `35301b108` R6 + una fila por hijo, `cd13a9a4f` emisor Pi,
+`7e56ef224` emisor Hermes).
+**Método:** riesgos derivados del requisito ANTES de leer el cierre del autor;
+después los tests del coder EJECUTADOS (`pnpm test`, `pnpm check:px-text`,
+`tsc --noEmit`, unittest del piloto), tres mutaciones de guard ejecutadas y
+restauradas, un sondeo propio de render con una fila degenerada, y lectura de
+`pilot.db` en solo-lectura.
+**Veredicto corto:** **apruebo las puertas 1 y 2** para la fila y sus tres
+estados; **no apruebo la puerta 3**. Las cinco comprobaciones obligatorias pasan
+con salida real. Queda un hueco de producto real (F1) y una deuda de verdad
+declarada (F5): **la emisión del 43007 nunca se ha ejecutado contra un relay**.
+
+> Sustituye al veredicto anterior, que revisó `aa1fc86c4`. Los dos commits del
+> emisor (`cd13a9a4f`, `7e56ef224`) y el cierre de R6 (`35301b108`) son
+> posteriores a aquel documento.
 
 ---
 
-## 1. Riesgos derivados del requisito (a ciegas)
+## 0. Comprobaciones obligatorias — resultado
 
-Requisito literal: «hacer **visible** e **interrumpible** el traspaso entre
-agentes», con las reglas de la casa (la UI no conoce Relay/Nostr/kinds; no se
-dibuja botón sin efecto; si el dato no distingue dos estados, la superficie lo
-dice). Cada riesgo lleva la observación que lo mata.
-
-| # | Riesgo | Observación que lo mata | Resultado |
+| # | Comprobación | Resultado | Salida que lo sostiene |
 |---|---|---|---|
-| R1 | Estado inventado (`blocked` derivado de `failed` con `basis: observed`) dibujado en la fila | trazar cada estado visible hasta su productor | **No en esta fila** (no dibuja bloqueo); el defecto sigue vivo en el plegado, F7 |
-| R2 | La superficie confunde vacío / error / cargando (un fallo pintado como «no hay») | forzar reject y exigir rama de error | **Cubierto** por par de tests ejecutados (§3) |
-| R3 | El traspaso no llega al canal nativo (sin `h`, sin hilo, sin `p`) | publicar y leerlo como mensaje nativo | **NO EJERCIDO**: no levanté relay; el hilo no se emite por diseño (F5) |
-| R4 | La UI aprende Relay/Nostr/kinds | grep: `features/tower/{ui,domain}` no importa `constants/kinds` | **Cumplido**: el kind solo vive en `shared/api/towerHandoffEdges.ts` |
-| R5 | Botón sin efecto («Interrumpir») | pulsarlo a mitad de run y ver parar el run | **Cumplido por omisión**: no existe tal botón (`grep -i "interrumpir\|pausar" features/tower` → 0). La mitad «interrumpible» del encargo NO está entregada |
-| R6 | Fallo que solo se ve si miras la consola (R6 del armazón) | refresco fallido **con filas en pantalla** | **FALLA**: ejecutado, la tabla vieja se pinta y el error no (§2, F2) |
-| R7 | Texto en px (zoom muerto) | `pnpm check:px-text` | **Cumplido**: exit 0 |
-| R8 | El vacío nombra una ventana que no ha leído, o confunde «no hay filas» con «no hay productor» | leer el texto del `EmptyState` contra el estado real del productor | **FALLA**: F1 |
+| 1 | Quitar un guard hace fallar un test | **PASA (3/3)** | §1, tres mutaciones ejecutadas |
+| 2 | Tres estados con texto; el error NO se dibuja como vacío | **PASA** | §2, render propio + tests del coder |
+| 3 | Ninguna celda de la fila queda en blanco | **PASA** | §2, `CELLS: ["Agente sin nombre","Rol sin registrar job-child-hexish","job-parent-hexish sin resultado registrado","sin instante registrado","sin hilo"]` |
+| 4 | La UI no contiene Relay/Nostr/kind ni números de kind | **PASA** | §3, grep + render |
+| 5 | No se dibuja botón de interrumpir ni celda de bloqueo | **PASA en la fila de relevo** | §3, grep; el `BlockedCell` que existe es de la cartera pre-existente |
 
 ---
 
-## 2. Sondeo propio: R2 y R6 ejecutados
+## 1. Falsación de guardas (ejecutada, no supuesta)
 
-Script nuevo **mío** (temporal, ejecutado con el loader del repo, borrado
-después; `git status` limpio). Constructo el snapshot de React Query con
-`isError: true` y `data` con una fila:
+Cada mutación se aplicó con `perl -0pi` en un worktree **detached** propio
+(`/tmp/relevo-rev`, HEAD = `7e56ef224`, `node_modules` enlazado al del coder),
+se ejecutó el test, se restauró con `cp` desde copia y el sha256 volvió a
+coincidir; el worktree se eliminó después. No se tocó la rama de nadie.
 
-```
-PHASE= unreachable LINES= 1 FAILURE= {"code":null,"message":"relay unreachable"}
-ERROR_SHOWN= false
-EMPTY_SHOWN= false
-STALE_TABLE_SHOWN= true
-ANNOUNCE= No se pudo leer el registro de relevos
-```
+| Guard mutado | Fichero | Test que falla | Salida |
+|---|---|---|---|
+| `publish_handoffs(role, role, job, trace_id)` **eliminado** de `worker.run` | `experiments/buzz-autonomy/worker.py` | `test_completion.CompletionBoundary.test_a_hermes_handoff_reaches_the_wire_for_each_child` | `AssertionError: 0 != 1 : one projection per completed job` → `FAILED (failures=1)` |
+| `\|\| childJobId === null` eliminado del fold de aristas | `desktop/src/shared/api/towerHandoffEdges.ts` | `towerHandoffEdges.test.mjs` → «an edge with no child is dropped, not drawn as a half row» | `actual: [ { id: 'p1->null', … } ]`, `expected: []` |
+| `view.phase === "unreachable" &&` eliminado de la rama de error | `desktop/src/features/tower/ui/HandoverSection.tsx` | `handoverRender.test.mjs` → «loading renders a skeleton, never the empty state's copy» | `✖ loading renders a skeleton…`; `ℹ pass 6 · fail 1` (la rama de carga pasó a dibujar el `Alert` de error) |
 
-Esperado (armazón R6, `especificacion-seccion-armazon.md` / spec §3 R6): aviso
-fijo **encima** de la lista vieja, con cuándo se leyó y el único «Reintentar» de
-la rama. Actual: la lista vieja se pinta **sin ningún aviso visible**; el único
-aviso es `sr-only`. La spec de diseño declaró R6 «fuera del encargo, para que el
-coder no lo invente», así que esto es riesgo residual **aceptado por diseño y no
-cubierto**, no una desviación oculta.
-
-El par vacío ≠ error **sí** está ejercido en las dos direcciones por los tests
-del coder (empty→`EmptyState`, reject→`Alert` con `adapter_unavailable`) y por
-el contrato del puerto: `getHandovers` **rechaza**, no resuelve `[]`.
+Los tres guards están **atados a la costura de producción** (el emisor del
+piloto, el fold de aristas y la separación de ramas de la superficie), no a
+ayudantes de test.
 
 ---
 
-## 3. Salida real de los tests del coder (ejecutados, no leídos)
+## 2. Render propio: tres estados, fila degenerada, refresco
 
-`cd desktop && node --import ./test-loader.mjs --experimental-strip-types --test
-src/shared/api/towerHandoffEdges.test.mjs src/features/tower/ui/handoverRender.test.mjs`
+Sondeo **mío** (fichero temporal en el worktree detached, borrado después).
+Render con `renderToStaticMarkup` sobre `HandoverSection` + `deriveHandoverView`:
 
-```
-✔ real handoff edges render as rows, not as empty or error
-✔ a successful empty read renders the empty state, not the error state
-✔ a failed read renders the error state, not the empty state
-✔ loading renders a skeleton, never the empty state's copy
-✔ one handoff event is one row, keyed by the parent→child edge
-✔ fan-out to two children is two rows, never one row per parent
-✔ the sender is the emitter of the handoff, not the child's role
-✔ the parent's terminal outcome is joined from its own lifecycle event
-✔ a failed parent is distinguished from a finished one by outcome, not color
-✔ a cancelled parent is its own outcome, not folded into failed
-✔ an unreadable parent end is `unknown`, never a fabricated outcome
-✔ an edge with no child is dropped, not drawn as a half row
-✔ an edge with no parent job is dropped
-✔ kinds outside the handoff and terminal sets are ignored
-✔ malformed events degrade instead of crashing the fold
-✔ the thread carries the channel but not a thread id it was never given
-✔ no channel is 'sin hilo', distinguishable from an unopenable thread
-✔ an unreadable instant is null, never 'now'
-✔ rows are newest first
-✔ the relay filter names its kinds explicitly and scopes to the owner
-ℹ tests 20  ℹ pass 20  ℹ fail 0
-```
+- **Fila degenerada** (`sender.name=null`, `child.name=null`,
+  `parentOutcome="unknown"`, `transferredAt=null`, `thread=null`): cinco celdas,
+  todas con texto — ver §0.3. **Ninguna celda en blanco.**
+- **Vacío vs error** (el par que define la pieza): `data:[]` →
+  `EMPTY: true false` (vacío sí, error no); `isError:true` sin datos →
+  `ERR: true false` (error sí, vacío no); `isPending:true` →
+  `LOAD: true false false`. Las tres ramas son **mutuamente excluyentes**.
+- **Error sin cifras ni instantes** (spec §3 R5): el cuerpo del error es
+  «…No se pudo leer el registro de relevos… Un fallo de lectura no se dibuja
+  como una lista vacía. Reintentar» — sin fecha y sin `0`.
+- **Refresco sobre filas** (`isFetching:true` con datos): `REFRESH: true false`
+  → la tabla sigue montada, no aparece el esqueleto (R2 cumplido).
+- **Fuga léxica en el render**: `LEAK_kind_number: false  LEAK_relay: false
+  LEAK_nostr: false` en los tres estados.
 
-Otras ejecuciones (todas desde el worktree del coder, con
-`CARGO_TARGET_DIR=…/sapira/cargo-target`):
-
-| Comando | Salida |
-|---|---|
-| `node --test src/features/tower/**/*.test.mjs src/shared/api/tower*.test.mjs` | `tests 84 · pass 84 · fail 0` |
-| `pnpm check:px-text` | exit 0 (sin hallazgos) |
-| `pnpm typecheck` | exit 0 |
-| `cargo test -p buzz-cli a_handoff` | `3 passed; 0 failed; 489 filtered out` |
-| `cargo test -p buzz-relay the_job_protocol_kinds_are_admitted` | `1 passed; 0 failed; 1137 filtered out` |
+Los tests del coder para las tres ramas y para el par vacío≠error pasan (26/26
+en `handoverRender.test.mjs` + `towerHandoffEdges.test.mjs`).
 
 ---
 
-## 4. Test de mutación del guard (hecho, no supuesto)
+## 3. Fuga C2 y controles prohibidos (comprobación 4 y 5)
 
-Cada mutación se aplicó con `perl -0pi`, se ejecutó, y se restauró con
-`git checkout --`; el sha256 volvió a coincidir y `git status --porcelain` quedó
-vacío en los tres casos.
+`git grep` sobre `desktop/src/features/tower/ui/` (rama, tip):
 
-| Guard mutado | Fichero:línea | Resultado |
+- `4300\d|4301\d|kind` → **0 coincidencias**.
+- `constants/kinds` → **0 importaciones** desde `ui/`.
+- `relay|nostr` (case-insensitive) → **0**; los únicos aciertos de `event` son
+  manejadores DOM (`onBlur`, `handleKeyDown`), no vocabulario de protocolo.
+- `interrumpir|pausar|pause|resume` en todo `features/tower/` → **0**. **No hay
+  botón de interrumpir.**
+- En la **fila de relevo** no hay celda de bloqueo: los cinco `<td>` son
+  emisor / hijo / padre+resultado / instante / hilo.
+- **Salvedad, fuera de esta fila:** `ui/PortfolioRow.tsx` (cartera
+  pre-existente, encima de la sección) sí dibuja `BlockedCell` sobre
+  `line.blocked` derivado de `failed` con `basis:"observed"`
+  (`towerJobFold.ts:96`). El slice del relevo no lo propaga, pero sigue en pie
+  en la misma pantalla; es el riesgo F7 del veredicto anterior, **no resuelto**.
+
+---
+
+## 4. Contraste afirmación-por-afirmación
+
+| Afirmación del coder | Veredicto | Salida |
 |---|---|---|
-| `\|\| childJobId === null` eliminado del fold de aristas | `desktop/src/shared/api/towerHandoffEdges.ts:105` | **FAIL**: `an edge with no child is dropped` — actual `[{ id: 'p1->null', … }]`, esperado `[]` (dibuja media fila) |
-| `if state == HANDOFF_STATE {` → `if false && …` en `resolve_child` | `crates/buzz-cli/src/commands/jobs.rs:111` | **FAIL ×2**: `a_handoff_requires_a_child` (panicked jobs.rs:409) y `a_handoff_carries_the_child_tag_on_the_wire` |
-| `\| KIND_JOB_HANDOFF` eliminado del match de scope | `crates/buzz-relay/src/handlers/ingest.rs:558` | **FAIL**: `the_job_protocol_kinds_are_admitted` — `left: None, right: Some(MessagesWrite)` en ingest.rs:4061 |
+| `pnpm test` desktop: 6709 passed, 0 failed, 86 suites | **CONFIRMADO** | `ℹ tests 6709 · suites 86 · pass 6709 · fail 0` (ejecutado por mí) |
+| `pnpm check:px-text` exit 0 | **CONFIRMADO** | `EXIT=0` |
+| `tsc --noEmit` exit 0 | **CONFIRMADO** | `EXIT_TC=0` |
+| `biome check` exit 0 | **NO VERIFICADO** | no lo ejecuté |
+| `unittest test_completion` 6 passed | **CONFIRMADO** | `Ran 6 tests … OK` |
+| `unittest test_controls` 27 passed | **CONFIRMADO** | `Ran 27 tests … OK` |
+| `unittest discover` 182 ran, 11 errores pre-existentes | **NO VERIFICADO** | ejecuté 3 ficheros; ver abajo |
+| El test nuevo falla con `worker.py` revertido | **CONFIRMADO** | mutación §1 fila 1 |
+| `cd13a9a4f` no emitía nada porque solo cubría Pi | **CONFIRMADO** | `sqlite3 -readonly pilot.db`: los 7 padres con hijos son `maestro`; **0 de Pi**. (El coder dice 20; mi consulta de «padres con hijos» da 7 — 20 es el número de `handoff_published` locales. El hecho del seam no cambia.) |
+| El emisor Hermes en `worker.run` es el call-site correcto | **CONFIRMADO por lectura + test**, **NO VERIFICADO en vivo** | §5, `job_handoff_published = 0` en `pilot.db` |
+| No se ha hecho end-to-end contra relay | **CONFIRMADO (es un hueco real)** | `job_handoff_published = 0`, `job_handoff_failed = 0` en `pilot.db` |
 
-Conclusión del paso 2: los guards están **atados a la costura de producción**
-(el fold, el CLI y el relay), no a ayudantes de test. Quitar cualquiera de los
-tres hace fallar un test.
+**`unittest discover`, matiz:** al ejecutar `test_tower_project` (fichero que la
+rama modifica, +71 líneas) da `Ran 34 tests … FAILED (errors=1)` por
+`ModuleNotFoundError: No module named 'control_plane.vision_e2e'`, en
+`test_pursuit_only_uses_a_wall_cap_when_operator_sets_one`. **Es pre-existente:**
+el test existe en `main:test_tower_project.py:336` y `control_plane/vision_e2e.py`
+no existe ni en `main` ni en el tip. Los tests nuevos del handoff dentro de ese
+fichero sí pasan. No reproduje el recuento agregado de 182/11.
 
 ---
 
 ## 5. Hallazgos, por impacto
 
-### F1 — ALTO (producto): el vacío afirma lo que no puede saber
-`HandoverEmptyState` (literal): «No hay ningún relevo en esta ventana» + «La
-fuente respondió que no hay traspasos registrados en la ventana de la sesión».
-**El productor del 43007 desde el piloto no existe** — lo dice el propio mensaje
-del commit («the producer that emits 43007 from the pilot is not part of this
-change»). Por tanto, en producción la sección **siempre** dirá que no hay
-relevos, y eso es ausencia de **productor** dibujada como ausencia de **filas**.
-`design/handover-slice1-spec.md` §5 ya lo había declarado decisión de producto
-pendiente: «Las dos frases no son intercambiables». El test del coder
-(`a successful empty read renders the empty state`) **codifica la frase
-equivocada como correcta**, así que pasará en verde hasta que alguien cambie el
-texto. Repro: leer el literal y cruzarlo con el alcance declarado del commit.
-Aceptar un arreglo exige: o (a) el vacío dice «el traspaso es sin señal en esta
-versión» mientras no exista emisor, o (b) el emisor existe y el vacío puede
-afirmar «no hay relevos en la ventana». Sin una de las dos, es la celda central
-mintiendo.
+### F1 — MEDIO (producto). Un fallo de proyección se lee como «no hay relevos»
+La spec §5.3 lo exige al revés: «Un fallo de publicación no se convierte en
+relevo exitoso… la pantalla nunca omite el fallo». El emisor escribe
+`job_handoff_failed` **solo en el log local** (`operator_updates.py:307`), nada
+lo publica al relay y nada lo reintenta (`grep job_handoff_failed` en el piloto:
+solo el `event(...)` y su test). La superficie lee **solo** la wire, así que un
+traspaso que sí ocurrió y cuya proyección falló se dibuja como estado **VACÍO**,
+y el vacío dice «La fuente respondió que no hay traspasos registrados». El
+docstring del propio test («never a silent gap the surface reads as 'no
+handoff'») describe una garantía que el sistema no da: el hueco sí es silencioso
+en la superficie.
+- **Repro:** leer `operator_updates.py:307` (evento local) + `towerBuzzSource.getHandovers` (lee solo el filtro de relay) + el texto del `HandoverEmptyState`; `sqlite3 pilot.db "SELECT COUNT(*) FROM events WHERE action='job_handoff_failed'"` (consumido por nada).
+- **Esperado vs actual:** esperado, que la superficie distinga «no hay relevos»
+  de «hay relevos cuyo registro no llegó»; actual, ambas se dibujan igual.
+- **Aceptar un arreglo exige:** o publicar al wire un hecho de fallo que la fila
+  pueda mostrar (o el vacío declara que su silencio también cubre una proyección
+  fallida), o un test que falle hoy y pase con esa distinción. Regla de la casa
+  #1 se cumple a medias (hay registro durable) pero la #6 («un guard que
+  esconde la única recuperación es fallo funcional») apunta en la misma
+  dirección: no hay camino de reintento.
 
-### F2 — MEDIO: refresco fallido sobre filas existentes, invisible
-Ejecutado (§2). `ERROR_SHOWN=false`, `STALE_TABLE_SHOWN=true`; solo un
-`aria-live` `sr-only`. El operador ve filas viejas presentadas como actuales sin
-saber que la lectura falló. Repro: ver §2. Aceptar un arreglo exige el aviso
-R6 (no descartable, encima de la lista, con `lastSuccessAt` y un único
-«Reintentar»); y un test nuevo que falle sin ese aviso.
+### F2 — MEDIO-BAJO. El vacío nombra una ventana que no lee
+`buildHandoffEventFilter` (rama) construye `{kinds:[…43001-43006, 43007], "#p":[owner], limit:500}`
+**sin `since`/`until`**. El texto del vacío dice «en la ventana de la sesión»; la
+lectura real es «los 500 eventos más recientes del owner». La spec §3 VACÍO pide
+periodo y canal impresos. No es una mentira de cero, pero sí una afirmación de
+alcance no sostenida por el filtro.
+- **Repro:** leer el filtro y el literal `HandoverEmptyState`.
+- **Aceptar:** imprimir el ámbito real (o el periodo exacto del filtro).
 
-### F3 — MEDIO-BAJO: el vacío no nombra la ventana
-La spec (R7) exige periodo y canal en texto. El coder dice «la ventana de la
-sesión». Cumple «nunca un 0», pero no cumple «la ventana se nombra»: el
-operador no puede saber qué intervalo se leyó. Acepta: fechas + canal impresos.
+### F3 — BAJO. La rama de carga no mantiene la cabecera de cinco columnas
+`HandoverLoadingState` pinta un `grid sm:grid-cols-5` de esqueletos **sin** la
+cabecera de columnas. La spec §3 CARGA: «la cabecera de cinco columnas
+permanece visible». Impacto bajo (la línea «Leyendo los relevos…» sí está).
+- **Repro:** leer `HandoverLoadingState`; render de carga en §2.
 
-### F4 — BAJO: la rama de carga no tiene línea visible
-La spec §0/§3 pide una línea de texto **visible** por estado. Aquí la carga
-pinta solo esqueletos y su frase vive en `sr-only` (leído en fuente:
-`HandoverSection.tsx` `HandoverLoadingState` + `announcementFor`). No lo
-rendericé visualmente; es lectura de fuente, no observación.
+### F4 — BAJO. La columna del padre imprime el id crudo como etiqueta principal
+`HandoverRowItem` columna 3 muestra `row.sender.jobId`. La spec (regla 5) pide
+referencias resueltas. En el piloto los ids son slugs legibles
+(`tower-arquitecto`), así que no es hex ni pubkey, pero el nombre del encargo del
+padre no se resuelve. La columna del hijo **sí** mejoró: ahora resuelve el rol
+desde los eventos del hijo y solo cae a `Rol sin registrar` cuando no lo publicó
+(probado en «the receiver cell names the child's own role»).
+- **Repro:** leer el fold y la celda.
 
-### F5 — BAJO: «Dónde se discutió» no enlaza al hilo
-La spec §1 nombra `Button variant="link" (asChild)` + `Badge`. El coder pinta el
-canal como texto mono y «el hilo no se pudo abrir (el id del hilo no se
-publica)». Es **honesto** (un enlace muerto sería peor y la regla de la casa
-prohíbe el control sin efecto), pero el encargo «va al hilo existente» queda no
-entregado hasta que el productor emita el id del evento.
+### F5 — NO VERIFICADO (hueco declarado por el autor, **confirmado por datos**). La emisión nunca se ejecutó contra un relay
+`pilot.db` en solo-lectura: `handoff_published = 20` (hechos locales),
+`job_handoff_published = 0`, `job_handoff_failed = 0`. El emisor nuevo **no ha
+corrido nunca en vivo**; los 179 `job_event_published` prueban que el canal de
+escritura del ciclo de vida sí funciona, pero **no** que un 43007 se admita y se
+relea de ida y vuelta. La coincidencia de etiquetas productor/lector
+(`--owner`→`p` (`jobs.rs:149`), `--channel`→`h`, `--job`/`--role`/`--child`) la
+verifiqué **por lectura del código**, no por un evento real.
+- **Qué falta para cerrarlo:** una ejecución de un padre `maestro` con hijos y
+  una lectura desde Tower con `#p`=viewer; o, más barato, publicar un 43007 con
+  el CLI y releerlo.
 
-### F6 — BAJO: la referencia del hijo no se resuelve
-`child.name` es `null` incondicional en el fold y la celda pinta el id crudo
-(`row.child.jobId`). La spec §2 regla 5 pide referencias resueltas, nunca ids.
-Acepta: leer el nombre del hijo de sus propios eventos, o decir «sin nombre
-registrado» en vez de presentar un id como etiqueta.
-
-### F7 — INFORMATIVO / PREEXISTENTE: el cero fabricado sigue
-`desktop/src/shared/api/towerJobFold.ts:96` sigue con
-`blocked: { count: failed ? 1 : 0, basis: "observed" }` (leído en fuente; el
-commit **no toca ese fichero** — `git show --stat`). La sección de relevo no
-dibuja bloqueo, así que este slice no lo propaga; pero la cartera encima de ella
-sigue pudiendo pintar «N blocked» con `basis: "observed"` sobre esa inferencia.
-El brief pedía arreglarlo **antes** de dibujar la celda de bloqueo: sigue sin
-arreglar.
+### F6 — Informativo / pre-existente. El cero fabricado sigue
+`towerJobFold.ts:96` mantiene `blocked:{count: failed?1:0, basis:"observed"}` y
+`PortfolioRow` lo dibuja. Fuera de este slice (el commit no toca ese fichero en
+esta parte), pero el brief pedía arreglarlo antes de dibujar bloqueo, y la
+cartera está en la misma pantalla que la sección nueva.
 
 ---
 
 ## 6. Lo que NO ejercí (dicho, no implicado)
 
-- **No levanté relay**: ningún 43007 real publicado y releído ida y vuelta. Todo
-  lo del relay es el test unitario de scope; la admisión de lectura (filtro del
-  desktop contra el p-gate) no la probé.
-- **No render nativo**: `renderToStaticMarkup` es render headless de React a
-  cadena. **No es cobertura nativa** ni mide foco, orden de tabulación, lector de
-  pantalla ni responsive.
-- **No medí los 400 ms** ni el tiempo de carga: no hay instrumentación ni
-  `performance` en mi ejecución.
-- **No probé la cancelación/interrupción**: no hay botón y no hay productor de
-  pausa; la mitad «interrumpible» del encargo queda declarada fuera.
-- **Procedencia**: F4–F7 son lectura de fuente; F1 es lectura de fuente + del
-  mensaje del commit; F2 y todo el §3–§4 son ejecución. Lo único que ejecuté
-  fuera de los tests del coder es el sondeo temporal de §2, borrado después.
+- **No levanté relay.** Ningún 43007 publicado y releído de ida y vuelta. La
+  admisión de escritura la verifiqué **por lectura** de `ingest.rs:557`
+  (`KIND_JOB_HANDOFF => MessagesWrite`), no ejecutando el test de relay.
+- **No corrí tests de Rust** (`cargo`): ninguna salida de `buzz-cli`/`buzz-relay`
+  en este documento es mía. Las cifras de `cargo` que cita el mensaje del commit
+  `cd13a9a4f` no las re-ejecuté.
+- **No render nativo.** `renderToStaticMarkup` es render headless a cadena; no
+  mide foco, orden de tabulación, lector de pantalla ni responsive. **No es
+  cobertura nativa.**
+- **No medí los 400 ms** ni el tiempo real de carga.
+- **No probé la interrupción** (no existe el botón) ni la celda de bloqueo del
+  relevo (no existe en la fila).
+- **No ejecuté `biome check`** ni el `unittest discover` agregado.
+- **Procedencia:** §1–§3 son ejecución mía; §4 son ejecuciones mías o lectura de
+  línea; §5 F1–F4 y F6 son lectura de línea (F1 además con `grep` y `sqlite`);
+  F5 es ejecución de `sqlite` en solo-lectura. Las mutaciones se aplicaron en un
+  worktree detached mío, borrado; la rama `agent/coder-dispatch` no se tocó
+  (`coder-dispatch` sigue limpio en `7e56ef224`).
+
+---
 
 ## 7. Handoff
 
-**Decisión que se debe:** ratificar la frase del vacío (F1) — ¿«no hay relevos
-en la ventana» con emisor que existe, o «traspaso sin señal» mientras no exista?
-De esa decisión depende el texto, el `title` del vacío y el test del par
-vacío≠error. **Bloqueador de la siguiente puerta:** F2 necesita aviso R6 + test.
-**Artefacto:** este fichero, `reviews/relevo-veredicto.md`; el código revisado en
-`agent/coder-dispatch@aa1fc86c4`. Sin push, sin merge, sin PR, sin deploy.
+**Decisión que se debe (producto, no revisor):** F1 — ¿la superficie distingue
+«no hay relevos» de «hay relevos cuyo registro no llegó», o el vacío declara que
+su silencio también cubre una proyección fallida? De esa respuesta dependen el
+texto del vacío, el contrato del productor y un test nuevo.
+**Deuda de verificación:** F5 — sin una ejecución real contra relay, «la
+superficie dibuja datos reales» sigue sin estar probado; es lo primero que
+rompería en producción y lo más barato de cerrar.
+**Puertas:** 1 y 2 aprobadas para la fila y sus estados; **3 no aprobada**
+(F1 sin resolver; F5 declarada). F2–F4 son pulido de la propia superficie.
+**Artefacto:** este fichero, `reviews/relevo-veredicto.md`; código revisado en
+`agent/coder-dispatch@7e56ef224`. Sin push, sin merge, sin PR, sin deploy.
