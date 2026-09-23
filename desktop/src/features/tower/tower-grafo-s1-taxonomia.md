@@ -214,3 +214,30 @@ Revisar esta taxonomía si: **(i)** se añade una kind o un tag de bloqueo;
 **Límite de este documento:** sin ejecución del piloto, sin publicación contra
 relay, sin trazas en vivo. Cada afirmación es código en disco en HEAD
 `ab63b0129` o una inferencia marcada como tal.
+
+---
+
+## Apéndice — inventario reutilizable (`desktop/src/features/tower/**`, `desktop/src/shared/api/tower*`)
+
+Leído con `find desktop/src/features/tower -type f` y `ls desktop/src/shared/api | grep tower`.
+Lo que S1 **reutiliza**, lo que **referencia** y lo que es de **S2**:
+
+| Fichero | Uso en S1 |
+|---|---|
+| `features/tower/domain/TowerSource.ts` | **reutiliza** — el puerto (rechaza en fallo, nunca `[]`) |
+| `features/tower/domain/portfolio.ts` | **reutiliza** — el modelo neutro (`WorkState`, `PortfolioLine`) |
+| `features/tower/domain/handover.ts` | S2 (aristas) |
+| `features/tower/ui/TowerScreen.tsx`, `TowerSection.tsx`, `TowerSectionBody.tsx` | **reutiliza** — la carcasa de la sección y sus ramas de fase |
+| `features/tower/ui/TowerLoadingState.tsx`, `TowerEmptyState.tsx`, `TowerErrorState.tsx` | **reutiliza** — los tres estados de superficie (carga / vacío / error) |
+| `features/tower/ui/portfolioState.ts`, `usePortfolioState.ts` | **reutiliza** — fase/snapshot y reintento |
+| `features/tower/ui/portfolioFormat.ts` | **reutiliza** — recencia y formato de cifras |
+| `features/tower/ui/TowerPortfolioList.tsx` | **referencia** — el patrón de tabindex móvil para que la tarjeta sea alcanzable por teclado |
+| `features/tower/ui/PortfolioRow.tsx` | **referencia** — la fila existente; la tarjeta del lienzo no la sustituye en S1 |
+| `features/tower/ui/TowerNeedsAttention.tsx` | **referencia** |
+| `features/tower/ui/HandoverSection.tsx`, `handoverState.ts`, `useHandoverState.ts` | S2 (aristas) |
+| `shared/api/towerBuzzSource.ts` | **reutiliza** — el adaptador (lectura acotada al owner) |
+| `shared/api/towerJobFold.ts` | **reutiliza** — el plegado kind→estado |
+| `shared/api/towerJobWaiting.ts` | **reutiliza** — el lector de reposo (43008) |
+| `shared/api/towerHandoffEdges.ts` | S2 (aristas) |
+
+Los **tokens** de color/tipografía/radio/sombra/espaciado no se deciden aquí: son la tabla rol Sapira → token de `@diseno`, y la tarjeta debe usar tokens **existentes** de `desktop/src`, sin tokens ni estilos globales nuevos.
