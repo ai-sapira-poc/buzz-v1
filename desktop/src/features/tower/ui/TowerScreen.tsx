@@ -1,4 +1,5 @@
 import { PageHeader } from "@/shared/ui/PageHeader";
+import { PanelSection } from "@/features/panel/ui/PanelSection";
 import { HandoverSection } from "./HandoverSection";
 import { TowerSection } from "./TowerSection";
 import { useHandoverState } from "./useHandoverState";
@@ -20,6 +21,7 @@ export function TowerScreen() {
           title="Tower Control"
         />
         <TowerSection view={view} />
+        <PanelSection handovers={handovers} portfolio={view} />
         <HandoverSection view={handovers} />
       </div>
     </div>

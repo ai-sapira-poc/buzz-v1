@@ -33,6 +33,11 @@ export const KIND_JOB_ERROR = 43006;
 // event per edge (fan-out 1:N). It is not a lifecycle state, so it is kept out
 // of the fold's STATE_BY_KIND; the edge reader lives in towerHandoffEdges.ts.
 export const KIND_JOB_HANDOFF = 43007;
+// A job at rest: the automated ladder gave up and the next move is the
+// operator's. It is a fact about a job, not a lifecycle state, so it is kept out
+// of the fold's STATE_BY_KIND; the waiting reader lives in towerJobWaiting.ts.
+// The `reason` tag carries a closed vocabulary (see WaitingReason).
+export const KIND_JOB_WAITING = 43008;
 export const KIND_FORUM_POST = 45001;
 export const KIND_FORUM_COMMENT = 45003;
 export const KIND_APPROVAL_REQUEST = 46010;
@@ -166,6 +171,10 @@ const NON_CONVERSATIONAL_UNREAD_KINDS: ReadonlySet<number> = new Set([
   KIND_JOB_RESULT, // 43004
   KIND_JOB_CANCEL, // 43005
   KIND_JOB_ERROR, // 43006
+  // 43008 — a job at rest is a fact about a job, not a message: when the
+  // producer publishes it with an `h` tag it rides the channel timeline, and a
+  // wait would otherwise read as "1 unread" for a fact that is not conversation.
+  KIND_JOB_WAITING,
   KIND_HUDDLE_STARTED, // 48100 — huddle cards are visible but non-conversational
   KIND_HUDDLE_PARTICIPANT_JOINED, // 48101
   KIND_HUDDLE_PARTICIPANT_LEFT, // 48102

@@ -311,6 +311,77 @@ def publish_handoffs(publisher: str, role: str, parent_job: str,
     return published
 
 
+# How the ladder's obstacle vocabulary maps onto the wire's closed reason
+# vocabulary. `classify()` names six obstacles; only `denied` is a missing
+# capability the operator must grant — every other rung is the ladder having
+# tried and given up. The mapping lives here, in one place, so the reason a
+# surface renders is decided next to the rest of the projection, not at the
+# call site.
+WAITING_REASON_BY_OBSTACLE = {
+    "denied": "capability_denied",
+}
+WAITING_REASON_DEFAULT = "ladder_exhausted"
+
+
+def waiting_reason(obstacle: object) -> str:
+    """The closed-vocabulary reason for a stopped ladder, from its obstacle."""
+    return WAITING_REASON_BY_OBSTACLE.get(str(obstacle), WAITING_REASON_DEFAULT)
+
+
+_WAITING_SAID = {
+    "ladder_exhausted":
+        "ha agotado la escalera automática; el siguiente movimiento es del operador",
+    "capability_denied":
+        "necesita una capacidad que no tiene; el siguiente movimiento es del operador",
+}
+
+
+def _waiting_line(role: str, reason: str, detail: object | None) -> str:
+    """One short line naming the reason, in the language the operator reads."""
+    text = f"{label(role)} {_WAITING_SAID.get(reason, 'está en espera')}"
+    if detail:
+        text += ". " + str(detail).replace("\n", " ").strip()[:200]
+    return text[:400]
+
+
+def publish_waiting(publisher: str, role: str, job: str, reason: str,
+                    detail: object | None = None) -> bool:
+    """Project the fact that a job is at rest onto the wire, best-effort.
+
+    `pursuit_exhausted` already records the fact in the local log; this is its
+    projection, exactly as `publish_job_event` is for the lifecycle. A relay
+    that is down must not turn a stopped ladder into a different outcome, so the
+    failed projection is recorded (`waiting_failed`) rather than raised — the
+    local row stays the retry record.
+
+    Returns whether it was published.
+    """
+    try:
+        from pilot import buzz, config
+
+        owner = config().get("viewer")
+        if not owner:
+            return False
+        args = ["jobs", "publish", "--state", "waiting", "--job", job,
+                "--owner", owner, "--role", role, "--reason", reason,
+                "--content", _waiting_line(role, reason, detail)]
+        channel = os.environ.get("BUZZ_PUBLISH_CHANNEL")
+        if channel:
+            args += ["--channel", channel]
+        receipt = buzz(publisher, args)
+        event(job, publisher, "waiting_published", {
+            "reason": reason, "role": role,
+            "event_id": receipt.get("event_id") if isinstance(receipt, dict) else None,
+        })
+        return True
+    except Exception as error:  # noqa: BLE001 - the local event is the retry record
+        event(job, publisher, "waiting_failed", {
+            "reason": reason, "role": role,
+            "error": f"{type(error).__name__}: {error}"[:500],
+        })
+        return False
+
+
 # The feed shows the kind's own headline ("Job accepted", "Job failed"), so the
 # content says who and what, not the state again.
 _SAID = {

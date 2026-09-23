@@ -41,9 +41,26 @@ const STATES: &[(&str, u16)] = &[
 const HANDOFF_STATE: &str = "handoff";
 const HANDOFF_KIND: u16 = 43007;
 
+/// The one event this command publishes that records a job at rest rather than
+/// moving it.
+///
+/// `waiting` says the automated ladder gave up and the next move is the
+/// operator's. It is a fact about a job, not a phase of its lifecycle, so it is
+/// kept out of [`STATES`] the way a handoff is: a reader that folded it as a
+/// lifecycle state would fold a stopped job as one still progressing.
+const WAITING_STATE: &str = "waiting";
+const WAITING_KIND: u16 = 43008;
+
+/// The reasons a job can be recorded as waiting, as the CLI spells them. A
+/// closed vocabulary, so a reader never has to parse the reason out of prose.
+const WAITING_REASONS: &[&str] = &["ladder_exhausted", "capability_denied"];
+
 fn kind_for(state: &str) -> Result<Kind, CliError> {
     if state == HANDOFF_STATE {
         return Ok(Kind::from(HANDOFF_KIND));
+    }
+    if state == WAITING_STATE {
+        return Ok(Kind::from(WAITING_KIND));
     }
     STATES
         .iter()
@@ -52,6 +69,7 @@ fn kind_for(state: &str) -> Result<Kind, CliError> {
         .ok_or_else(|| {
             let mut names: Vec<&str> = STATES.iter().map(|(name, _)| *name).collect();
             names.push(HANDOFF_STATE);
+            names.push(WAITING_STATE);
             CliError::Usage(format!(
                 "unknown state '{state}'; expected one of: {}",
                 names.join(", ")
@@ -101,6 +119,41 @@ fn resolve_outcome(kind: Kind, outcome: Option<&str>) -> Result<Option<&'static 
     Ok(Some(outcome))
 }
 
+/// Resolve `--reason` into the value that goes on the wire, or `None` when the
+/// caller made no claim.
+///
+/// Required with `--state waiting`, and refused on every other state: a reason
+/// with no wait to explain, or a wait with no reason to name, is a claim the
+/// reader cannot act on. A `waiting` event without a `reason` tag would leave
+/// the cell that reads it unable to say why, so it is refused before signing.
+fn resolve_reason(state: &str, reason: Option<&str>) -> Result<Option<&'static str>, CliError> {
+    if state != WAITING_STATE {
+        if reason.is_some() {
+            return Err(CliError::Usage(
+                "reason names why a job is waiting; it is only meaningful with --state waiting"
+                    .into(),
+            ));
+        }
+        return Ok(None);
+    }
+    let Some(reason) = reason else {
+        return Err(CliError::Usage(
+            "a waiting event names its reason: --reason is required with --state waiting".into(),
+        ));
+    };
+    WAITING_REASONS
+        .iter()
+        .copied()
+        .find(|name| *name == reason)
+        .map(Some)
+        .ok_or_else(|| {
+            CliError::Usage(format!(
+                "unknown reason '{reason}'; expected one of: {}",
+                WAITING_REASONS.join(", ")
+            ))
+        })
+}
+
 /// What a `--child` means for this state: the receiver of a handoff, or a
 /// caller error.
 ///
@@ -136,6 +189,7 @@ fn resolve_child<'a>(state: &str, child: Option<&'a str>) -> Result<Option<&'a s
 /// asserted without a relay. The regression this guards — the delivery
 /// distinction silently falling off the wire — is invisible in prose and would
 /// otherwise only be found by a reader who had already been misled by it.
+#[allow(clippy::too_many_arguments)]
 fn lifecycle_tags(
     owner: &str,
     job: &str,
@@ -144,6 +198,7 @@ fn lifecycle_tags(
     role: Option<&str>,
     trace: Option<&str>,
     outcome: Option<&str>,
+    reason: Option<&str>,
 ) -> Result<Vec<Tag>, CliError> {
     let mut tags = vec![
         Tag::parse(["p", owner]).map_err(|e| CliError::Usage(format!("invalid owner tag: {e}")))?,
@@ -185,6 +240,14 @@ fn lifecycle_tags(
                 .map_err(|e| CliError::Other(format!("invalid outcome tag: {e}")))?,
         );
     }
+    if let Some(reason) = reason {
+        // The reader that renders a waiting job names the reason; it must not
+        // have to guess it from the content line.
+        tags.push(
+            Tag::parse(["reason", reason])
+                .map_err(|e| CliError::Other(format!("invalid reason tag: {e}")))?,
+        );
+    }
     Ok(tags)
 }
 
@@ -204,11 +267,13 @@ pub async fn cmd_publish(
     role: Option<&str>,
     trace: Option<&str>,
     outcome: Option<&str>,
+    reason: Option<&str>,
     content: &str,
 ) -> Result<(), CliError> {
     let kind = kind_for(state)?;
     let outcome = resolve_outcome(kind, outcome)?;
     let child = resolve_child(state, child)?;
+    let reason = resolve_reason(state, reason)?;
     validate_hex64(owner)?;
     if job.is_empty() || job.len() > 160 {
         return Err(CliError::Usage(
@@ -223,7 +288,7 @@ pub async fn cmd_publish(
         ));
     }
 
-    let tags = lifecycle_tags(owner, job, child, channel, role, trace, outcome)?;
+    let tags = lifecycle_tags(owner, job, child, channel, role, trace, outcome, reason)?;
 
     let event = client.sign_event(EventBuilder::new(kind, content).tags(tags))?;
     let resp = client.submit_event(event).await?;
@@ -243,6 +308,7 @@ pub async fn dispatch(cmd: crate::JobsCmd, client: &BuzzClient) -> Result<(), Cl
             role,
             trace,
             outcome,
+            reason,
             content,
         } => {
             cmd_publish(
@@ -255,6 +321,7 @@ pub async fn dispatch(cmd: crate::JobsCmd, client: &BuzzClient) -> Result<(), Cl
                 role.as_deref(),
                 trace.as_deref(),
                 outcome.as_deref(),
+                reason.as_deref(),
                 &content,
             )
             .await
@@ -329,6 +396,7 @@ mod tests {
             Some("coder"),
             None,
             resolve_outcome(kind_for("error").unwrap(), outcome).unwrap(),
+            None,
         )
         .unwrap()
     }
@@ -434,6 +502,7 @@ mod tests {
             Some("architect"),
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(tag_value(&tags, "job"), Some("tower-architect"));
@@ -443,5 +512,76 @@ mod tests {
     #[test]
     fn a_lifecycle_event_carries_no_child_tag() {
         assert_eq!(tag_value(&failure_tags(None), "child"), None);
+    }
+
+    #[test]
+    fn a_waiting_event_maps_to_the_waiting_kind() {
+        assert_eq!(kind_for("waiting").unwrap().as_u16(), WAITING_KIND);
+        assert!(
+            (43000..=43999).contains(&WAITING_KIND),
+            "left the job range"
+        );
+    }
+
+    #[test]
+    fn waiting_is_not_one_of_the_six_lifecycle_states() {
+        // A job at rest is not a phase of its lifecycle. Folding it into STATES
+        // would let a reader that switches on the kind's meaning fold a stopped
+        // job as one still progressing.
+        assert!(!STATES.iter().any(|(name, _)| *name == WAITING_STATE));
+        assert_eq!(STATES.len(), 6, "the protocol has exactly six states");
+    }
+
+    #[test]
+    fn a_waiting_event_requires_a_reason() {
+        // Removing this guard must fail here: a waiting event with no reason
+        // leaves the cell that reads it unable to say why the job is at rest.
+        assert!(resolve_reason("waiting", None).is_err());
+        assert_eq!(
+            resolve_reason("waiting", Some("ladder_exhausted")).unwrap(),
+            Some("ladder_exhausted")
+        );
+    }
+
+    #[test]
+    fn an_unknown_reason_lists_the_ones_that_exist() {
+        let error = resolve_reason("waiting", Some("stuck")).unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("stuck"), "{message}");
+        for reason in WAITING_REASONS {
+            assert!(message.contains(reason), "missing {reason} in: {message}");
+        }
+    }
+
+    #[test]
+    fn a_reason_outside_a_waiting_state_is_refused() {
+        // A reason with no wait to explain is a claim the reader cannot act on.
+        let error = resolve_reason("result", Some("ladder_exhausted")).unwrap_err();
+        assert!(error.to_string().contains("--state waiting"), "{error}");
+        assert_eq!(resolve_reason("result", None).unwrap(), None);
+    }
+
+    #[test]
+    fn a_waiting_event_carries_the_reason_tag_on_the_wire() {
+        // Removing the `reason` push from `lifecycle_tags` must fail here: the
+        // cell would arrive with no reason to name.
+        let tags = lifecycle_tags(
+            OWNER,
+            "tower-coder",
+            None,
+            Some("chan"),
+            Some("coder"),
+            None,
+            None,
+            resolve_reason("waiting", Some("capability_denied")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tag_value(&tags, "job"), Some("tower-coder"));
+        assert_eq!(tag_value(&tags, "reason"), Some("capability_denied"));
+    }
+
+    #[test]
+    fn a_lifecycle_event_carries_no_reason_tag() {
+        assert_eq!(tag_value(&failure_tags(None), "reason"), None);
     }
 }

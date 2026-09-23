@@ -522,6 +522,12 @@ def pursue(role: str, max_attempts: int = 3, dry_run: bool = False) -> dict:
     result = {"role": role, "reached": False, "attempts": tried,
               "obstacle": obstacle}
     event(key, role, "pursuit_exhausted", result)
+    # Project the fact that this job is now at rest onto the wire. The local row
+    # above stays the durable retry record; this is its best-effort projection,
+    # and its reason is the obstacle the ladder already classified — never a
+    # guess about a cause the code cannot see.
+    from operator_updates import publish_waiting, waiting_reason
+    publish_waiting(role, role, key, waiting_reason(obstacle), obstacle)
     return result
 
 

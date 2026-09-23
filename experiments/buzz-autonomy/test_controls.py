@@ -355,3 +355,62 @@ class TheHandoffEdgeReachesTheSurface(unittest.TestCase):
         line = operator_updates._handoff_line("product", "child-a", None)
         self.assertIn("child-a", line)
         self.assertLessEqual(len(line), 400)
+
+
+class TheWaitReachesTheSurface(unittest.TestCase):
+    """`pursuit_exhausted` records that the ladder gave up, but nothing
+    projected it onto the relay, so the panel's waiting cell had no producer.
+    Kind 43008 is that projection, and its reason is the obstacle the ladder
+    already classified — never a guess about a cause the code cannot see.
+    """
+
+    def test_the_reason_comes_from_the_closed_vocabulary(self):
+        import operator_updates
+
+        self.assertEqual(
+            operator_updates.waiting_reason("denied"), "capability_denied")
+        for obstacle in ("blocked", "transient", "budget", "timeout", "empty",
+                         "unknown"):
+            self.assertEqual(
+                operator_updates.waiting_reason(obstacle), "ladder_exhausted",
+                obstacle)
+
+    def test_the_event_names_its_reason_and_stays_business_language(self):
+        import operator_updates
+
+        calls = []
+
+        def buzz(role, args):
+            calls.append(list(args))
+            return {"event_id": "w-1"}
+
+        with patch("pilot.config", return_value={"viewer": "a" * 64}), \
+                patch("pilot.buzz", side_effect=buzz):
+            published = operator_updates.publish_waiting(
+                "coder", "coder", "job-1", "ladder_exhausted", "budget")
+
+        self.assertTrue(published)
+        args = calls[0]
+        self.assertEqual(args[args.index("--state") + 1], "waiting")
+        self.assertEqual(args[args.index("--reason") + 1], "ladder_exhausted")
+        line = args[args.index("--content") + 1]
+        self.assertIn("siguiente movimiento es del operador", line)
+        self.assertNotIn("ladder_exhausted", line)
+        self.assertLessEqual(len(line), 400)
+
+    def test_a_relay_failure_is_recorded_not_raised(self):
+        # A relay that is down must not turn a stopped ladder into a different
+        # outcome: the local row stays the retry record, and the failed
+        # projection leaves a row that says so.
+        import operator_updates
+
+        recorded = []
+        with patch.object(operator_updates, "event",
+                          lambda *a, **k: recorded.append(a[2])), \
+                patch("pilot.config", return_value={"viewer": "a" * 64}), \
+                patch("pilot.buzz", side_effect=RuntimeError("relay down")):
+            published = operator_updates.publish_waiting(
+                "coder", "coder", "job-1", "ladder_exhausted", "budget")
+
+        self.assertFalse(published)
+        self.assertIn("waiting_failed", recorded)

@@ -84,4 +84,29 @@ export interface PortfolioLine {
    * `null` means not legible — the UI renders "not available", never `0`.
    */
   cost: PortfolioCost | null;
+  /**
+   * The recorded wait: the job is at rest and the next move is the operator's.
+   *
+   * `null` is **"sin señal"**, never "no wait": the producer that records this
+   * (`KIND_JOB_WAITING`) is best-effort, so absence of the event is not evidence
+   * that nothing waits. The surface says so in words — and never renders a `0`.
+   */
+  waiting: PortfolioWaiting | null;
+}
+
+/**
+ * Why a job is recorded as at rest. A closed vocabulary, carried by the
+ * producer's `reason` tag; the surface names the reason rather than guessing a
+ * human cause.
+ *
+ * `ladder_exhausted` — the automated ladder tried and gave up.
+ * `capability_denied` — the job needs a capability the agent does not have.
+ */
+export type WaitingReason = "ladder_exhausted" | "capability_denied";
+
+/** The recorded wait and the instant it was recorded. */
+export interface PortfolioWaiting {
+  reason: WaitingReason;
+  /** ISO instant of the waiting event. */
+  at: string;
 }
