@@ -18,7 +18,7 @@ El encargo dice «legibles 43001-43006» y «bloqueado: sin productor». La prim
 mitad es correcta **para el ciclo de vida**; la segunda es correcta para el ciclo
 de vida y **falsa para la adyacencia**: en HEAD existen `43007` (arista de relevo)
 y `43008` (encargo en reposo), y **`43008` sí tiene productor**
-(`control_plane/pursue.py:535-536` → `operator_updates.publish_waiting`). `43008`
+(`control_plane/pursue.py:529-530` → `operator_updates.publish_waiting`). `43008`
 **no es «bloqueado» ni lo sustituye**: significa «el encargo está en reposo y el
 siguiente movimiento es del operador», y hoy no está dibujado en ninguna
 superficie. Por tanto la taxonomía correcta es: **cinco estados de ciclo de vida
@@ -37,13 +37,20 @@ lo devuelve; `git status` no marca ese fichero).
 
 ## 1. Procedencia
 
-**Observado** = leído en el fichero con `cat -n` / `grep -n` en el HEAD de arriba,
-o comando y salida. **Inferido** = marcado como tal. **No ejecuté el piloto** ni
-publiqué ningún evento contra un relay: no vi ninguna de estas transiciones en
-vivo. `experiments/buzz-autonomy/operator_updates.py` tiene cambios sin commit en
-el árbol de trabajo (14 inserciones / 2 borrados); verifiqué que el diff **no toca**
-`JOB_EVENT_STATE` (`git diff -U0` muestra solo `result_header`), así que las líneas
-de estado citadas valen igual en HEAD y en el árbol.
+**Observado** = leído en el fichero con `cat -n` / `grep -n`, o comando y salida,
+**en la base de la PR** (`main` = `ab63b0129`). **Inferido** = marcado como tal.
+**No ejecuté el piloto** ni publiqué ningún evento contra un relay: no vi ninguna
+de estas transiciones en vivo.
+
+**Corrección de procedencia (defecto señalado por el revisor, arreglado aquí).**
+En la primera versión leí `experiments/buzz-autonomy/operator_updates.py` del
+**árbol de trabajo**, que entonces divergía de `main`: el diff no tocaba
+`JOB_EVENT_STATE`, pero insertaba líneas en `result_header` (`git diff --numstat`
+→ `14 2`), desplazando **+12** todo lo posterior. Concluir que las líneas «valen
+igual» fue un *non sequitur* — no tocar un bloque no es no moverlo. Las citas de
+los scripts del piloto están ahora fijadas a `main` y reproducen con
+`git show ab63b0129:<fichero> | sed -n '<línea>p'`. Regla adoptada: **citar
+siempre desde el commit que la PR entrega, nunca desde el árbol de trabajo.**
 
 ---
 
@@ -51,12 +58,12 @@ de estado citadas valen igual en HEAD y en el árbol.
 
 | # | Estado de tarjeta (`WorkState`) | Kind | Constante | Plegado | Productor del evento (state → kind) | Semántica |
 |---|---|---|---|---|---|---|
-| 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:215`) | pedido, sin arrancar |
-| 2 | `running` (aceptado) | 43002 | `kinds.ts:27` | `towerJobFold.ts:34` | `started` (`operator_updates.py:216`) | aceptado |
-| 3 | `running` (progreso) | 43003 | `kinds.ts:28` | `towerJobFold.ts:35` | `running` (`:217`) **y `blocked` (`:221`)** | trabajando / **contaminado** |
-| 4 | `done` | 43004 | `kinds.ts:29` | `towerJobFold.ts:36` | `done` (`operator_updates.py:218`) | entregado |
-| 5 | `cancelled` | 43005 | `kinds.ts:30` | `towerJobFold.ts:37` | `cancelled` (`:219`) | detenido por decisión |
-| 6 | `failed` | 43006 | `kinds.ts:31` | `towerJobFold.ts:38` | `failed` (`:220`) | no entregó |
+| 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:203`) | pedido, sin arrancar |
+| 2 | `running` (aceptado) | 43002 | `kinds.ts:27` | `towerJobFold.ts:34` | `started` (`operator_updates.py:204`) | aceptado |
+| 3 | `running` (progreso) | 43003 | `kinds.ts:28` | `towerJobFold.ts:35` | `running` (`:205`) **y `blocked` (`:209`)** | trabajando / **contaminado** |
+| 4 | `done` | 43004 | `kinds.ts:29` | `towerJobFold.ts:36` | `done` (`operator_updates.py:206`) | entregado |
+| 5 | `cancelled` | 43005 | `kinds.ts:30` | `towerJobFold.ts:37` | `cancelled` (`:207`) | detenido por decisión |
+| 6 | `failed` | 43006 | `kinds.ts:31` | `towerJobFold.ts:38` | `failed` (`:208`) | no entregó |
 
 Dos kinds colapsan en `running` (aceptado y progreso): la tarjeta tiene **cinco**
 valores, no seis. Es una decisión del plegado, no un defecto. `requested` es fila
@@ -68,9 +75,9 @@ no a `running`.
 | Eslabón | Dónde |
 |---|---|
 | El CLI acepta el estado y lo traduce a kind | `crates/buzz-cli/src/commands/jobs.rs:26-33` (`STATES`), `:58-78` (`kind_for`) |
-| El piloto mapea su vocabulario al del CLI | `operator_updates.py:214-222` (`JOB_EVENT_STATE`) |
-| El piloto emite el evento | `publish_job_event` `operator_updates.py:225-259` (args en `:242-244`) |
-| Quién lo llama | `publish_update` `operator_updates.py:418-445` (llamada en `:434`) |
+| El piloto mapea su vocabulario al del CLI | `operator_updates.py:202-210` (`JOB_EVENT_STATE`) |
+| El piloto emite el evento | `publish_job_event` `operator_updates.py:213-247` (args en `:230-232`) |
+| Quién lo llama | `publish_update` `operator_updates.py:406-433` (llamada en `:422`) |
 | Emisores de ciclo de vida | `_publish_lifecycle` `control_plane/launch_tower.py:190-221`; llamadas en `:287` (`started`), `:297` (`failed`/`cancelled`), `:301` (`cancelled`), `:303` (`done`), `:335` (`done`), `:348` (`started`), `:386` (`done`), `:396` (`failed`/`cancelled`), `:418` (`blocked`) |
 
 **Regla de desempate (afecta a qué estado muestra una tarjeta):** el plegado elige
@@ -92,12 +99,12 @@ es `requested | running | done | failed | cancelled`; no hay miembro `blocked`. 
 
 - **(a) bloqueo de lanzamiento:** `control_plane/launch_tower.py:418`
   `_publish_lifecycle(role, job_id(role), "blocked", ...)`.
-- **(b) bloqueo de delegación:** `operator_updates.py:461-469` (`publish_delegation`)
-  → `publish_update(..., "blocked", ...)`; llamador `capabilities.py:518-520`.
+- **(b) bloqueo de delegación:** `operator_updates.py:449-457` (`publish_delegation`)
+  → `publish_update(..., "blocked", ...)`; llamador `capabilities.py:513-515`.
 
-Ambos entran por `JOB_EVENT_STATE["blocked"] = "progress"` (`operator_updates.py:221`)
+Ambos entran por `JOB_EVENT_STATE["blocked"] = "progress"` (`operator_updates.py:209`)
 → kind **43003** → el plegado lo traduce a **`running`** (`towerJobFold.ts:35`). La
-prosa dice «está esperando a una dependencia» (`operator_updates.py:406`) mientras
+prosa dice «está esperando a una dependencia» (`operator_updates.py:394`) mientras
 la máquina dice «trabajando». **Son dos caminos, no uno**; un arreglo del alias que
 solo toque el lanzador dejaría el otro.
 
@@ -133,8 +140,8 @@ encargo lo roza y porque el coder debe saber que existe y que no está dibujado.
 | Pieza | Dónde |
 |---|---|
 | Kind | `kinds.ts:40`; CLI `jobs.rs:51-52`, `:62-64` |
-| Productor | `control_plane/pursue.py:535-536` → `publish_waiting` `operator_updates.py:359-394` → `jobs publish --state waiting ... --reason ...` (`:377-379`) |
-| Vocabulario cerrado de razones | `ladder_exhausted`, `capability_denied` (`operator_updates.py:332-335`; `towerJobWaiting.ts:30-34`) |
+| Productor | `control_plane/pursue.py:529-530` → `publish_waiting` `operator_updates.py:347-382` → `jobs publish --state waiting ... --reason ...` (`:365-367`) |
+| Vocabulario cerrado de razones | `ladder_exhausted`, `capability_denied` (`operator_updates.py:320-323`; `towerJobWaiting.ts:29-32`) |
 | Lector | `desktop/src/shared/api/towerJobWaiting.ts` (`foldWaitingForJob`); se une a la línea en `towerBuzzSource.ts:90-119` |
 | Superficie | **ninguna**: `grep -rn "waiting" desktop/src/features/tower/ui/*.tsx` → sin salida |
 
@@ -166,6 +173,12 @@ superficie. No confundirlo con la celda de bloqueo: son cosas distintas.
 - **El puerto rechaza en fallo, nunca `[]`:** `TowerSource.ts:9-13` y `:15-21`;
   el adaptador lanza `TowerSourceError("adapter_unavailable", ...)` en
   `towerBuzzSource.ts:144-176`.
+- **Rendija residual (hallazgo del revisor):** `towerBuzzSource.ts:148` y `:165`
+  hacen `events ?? []`. El `catch` cubre el **rechazo**, pero una fuente que
+  **resuelva** `null`/`undefined` se convierte en `[]` y pinta «no hay trabajo»
+  sobre una fuente muerta — justo lo que el puerto prohíbe. La superficie nueva
+  no debe reabrirla: el adaptador debería rechazar si el resultado no es un array
+  (`Array.isArray`), no convertirlo en vacío.
 
 ---
 
@@ -177,8 +190,8 @@ superficie. No confundirlo con la celda de bloqueo: son cosas distintas.
   admite. Un relay viejo rechazaría la publicación (leído de informes previos, no
   reproducido).
 - **El tag `trace` sigue sin emitirse** (inferido de la lectura):
-  `publish_job_event` construye los args sin `--trace` (`operator_updates.py:242-244`)
-  y `publish_update` no lo pasa (`:434`), aunque el CLI lo declara (`lib.rs:806-808`) y
+  `publish_job_event` construye los args sin `--trace` (`operator_updates.py:230-232`)
+  y `publish_update` no lo pasa (`:422`), aunque el CLI lo declara (`lib.rs:806-808`) y
   construye el tag (`jobs.rs:227-230`). No lo vi publicado.
 - **`43008` no tiene consumidor de UI** (grep). Si el diseño de S1 lo espera, falta.
 
