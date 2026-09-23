@@ -783,7 +783,7 @@ pub enum CanvasCmd {
 pub enum JobsCmd {
     /// Publish one lifecycle event for one job
     Publish {
-        /// requested | accepted | progress | result | cancelled | error | handoff
+        /// requested | accepted | progress | result | cancelled | error | handoff | waiting
         #[arg(long)]
         state: String,
         /// Job id correlating this assignment's whole lifecycle. For a handoff
@@ -811,6 +811,12 @@ pub enum JobsCmd {
         /// not accepted). Only meaningful with `--state error`.
         #[arg(long)]
         outcome: Option<String>,
+        /// Why a job is at rest: `ladder_exhausted` (the automated ladder tried
+        /// and gave up) or `capability_denied` (the job needs a capability the
+        /// agent does not have). Required with `--state waiting`; refused on
+        /// every other state.
+        #[arg(long)]
+        reason: Option<String>,
         /// One short line, already in business language
         #[arg(long, default_value = "")]
         content: String,

@@ -96,6 +96,10 @@ function lineFrom(job: JobAccumulator): PortfolioLine {
     blocked: { count: failed ? 1 : 0, basis: "observed" },
     // These events carry no token accounting. Absent, never a measured zero.
     cost: null,
+    // The lifecycle fold says nothing about rest; the waiting reader beside it
+    // fills this in from the same read. `null` here is "not yet read", and the
+    // adapter overwrites it rather than the fold guessing.
+    waiting: null,
     work: { state: job.state, summary: job.summary },
   };
 }

@@ -6,6 +6,7 @@ import {
   buildJobEventFilter,
   createTowerBuzzSource,
 } from "./towerBuzzSource.ts";
+import { JOB_KINDS } from "./towerJobFold.ts";
 
 const OWNER = "owner-pubkey-hex";
 
@@ -47,6 +48,8 @@ test("every event of one job folds into one line carrying the newest state", asy
     recency: { lastSpanAt: new Date(130 * 1000).toISOString() },
     blocked: { count: 0, basis: "observed" },
     cost: null,
+    // No 43008 in the read: the wait cell stays "sin señal", never 0.
+    waiting: null,
     work: { state: "done", summary: "Shipped the fix" },
   });
 });
@@ -152,7 +155,15 @@ test("the relay filter names its kinds explicitly and scopes to the owner", asyn
 
   // Bound to the filter the production read sends, not to a test-only copy.
   const filter = buildJobEventFilter(OWNER);
-  assert.deepEqual(filter.kinds, [43001, 43002, 43003, 43004, 43005, 43006]);
+  assert.deepEqual(
+    filter.kinds,
+    [...JOB_KINDS, 43008],
+    "the wait projection rides the same read as the lifecycle kinds",
+  );
+  assert.ok(
+    !JOB_KINDS.includes(43008),
+    "43008 must not join the lifecycle state fold",
+  );
   assert.deepEqual(filter["#p"], [OWNER]);
   assert.ok(filter.limit > 0, "the read must be bounded");
 });
