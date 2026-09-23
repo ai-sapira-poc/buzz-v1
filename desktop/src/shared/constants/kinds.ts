@@ -171,6 +171,10 @@ const NON_CONVERSATIONAL_UNREAD_KINDS: ReadonlySet<number> = new Set([
   KIND_JOB_RESULT, // 43004
   KIND_JOB_CANCEL, // 43005
   KIND_JOB_ERROR, // 43006
+  // 43008 — a job at rest is a fact about a job, not a message: when the
+  // producer publishes it with an `h` tag it rides the channel timeline, and a
+  // wait would otherwise read as "1 unread" for a fact that is not conversation.
+  KIND_JOB_WAITING,
   KIND_HUDDLE_STARTED, // 48100 — huddle cards are visible but non-conversational
   KIND_HUDDLE_PARTICIPANT_JOINED, // 48101
   KIND_HUDDLE_PARTICIPANT_LEFT, // 48102

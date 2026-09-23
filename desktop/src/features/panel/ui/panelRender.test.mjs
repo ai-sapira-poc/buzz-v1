@@ -129,3 +129,45 @@ test("a missing task is named, never left blank", () => {
   });
   assert.match(html, /sin tarea declarada/);
 });
+
+// §7 case 5: a wait whose job published no lifecycle event in the window —
+// born of a relay-error publication that leaves the wait with no job around
+// it — is reported, not discarded, and not drawn as an ordinary wait.
+test("an orphan wait is reported as a wait with no activity in the window", () => {
+  const html = render({
+    portfolio: snapshot({
+      data: [
+        line({
+          work: null,
+          recency: { lastSpanAt: "2026-09-23T09:40:00.000Z" },
+          waiting: {
+            reason: "capability_denied",
+            at: "2026-09-23T09:40:00.000Z",
+          },
+        }),
+      ],
+    }),
+  });
+  assert.match(
+    html,
+    /Espera registrada para un encargo sin actividad en la ventana/,
+  );
+});
+
+test("an ordinary wait of an active job does not claim the orphan sentence", () => {
+  const html = render({
+    portfolio: snapshot({
+      data: [
+        line({
+          work: { state: "running", summary: "escribiendo el slice" },
+          waiting: {
+            reason: "capability_denied",
+            at: "2026-09-23T09:40:00.000Z",
+          },
+        }),
+      ],
+    }),
+  });
+  assert.match(html, /Espera registrada/);
+  assert.doesNotMatch(html, /sin actividad en la ventana/);
+});

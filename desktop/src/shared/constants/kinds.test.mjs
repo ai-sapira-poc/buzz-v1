@@ -13,6 +13,7 @@ import {
   KIND_JOB_RESULT,
   KIND_JOB_CANCEL,
   KIND_JOB_ERROR,
+  KIND_JOB_WAITING,
   KIND_HUDDLE_STARTED,
   KIND_HUDDLE_PARTICIPANT_JOINED,
   KIND_HUDDLE_PARTICIPANT_LEFT,
@@ -60,6 +61,12 @@ test("isConversationalUnreadKind_huddleLifecycle_excluded", () => {
   ]) {
     assert.equal(isConversationalUnreadKind(kind), false, `kind ${kind}`);
   }
+});
+
+test("isConversationalUnreadKind_jobWaiting_excluded", () => {
+  // 43008 published with an `h` tag rides the channel timeline; a job at rest
+  // is not conversation and must not show as "1 unread".
+  assert.equal(isConversationalUnreadKind(KIND_JOB_WAITING), false);
 });
 
 test("isConversationalUnreadKind_undefinedKind_countsAsConversational", () => {

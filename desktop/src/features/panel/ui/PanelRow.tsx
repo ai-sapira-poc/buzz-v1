@@ -41,8 +41,20 @@ const UNREADABLE_HANDOVERS = "El registro de relevos no se pudo leer.";
  * The cell's two other states — error and loading — are the section's, not the
  * row's: a read that fails, or is still in flight, never draws rows at all, so
  * this cell cannot claim "sin señal" over a read that did not happen.
+ *
+ * `orphan` is the case the panel would lose by folding silently: the wait
+ * arrived without the job's lifecycle event (a publication that died on the
+ * relay leaves exactly that). It is **reported**, not discarded, with the
+ * sentence §7 case 5 fixes — so a wait from a job the window never saw is not
+ * drawn as the ordinary wait of an active job.
  */
-function WaitingCell({ waiting }: { waiting: PanelRow["waiting"] }) {
+function WaitingCell({
+  waiting,
+  orphan,
+}: {
+  waiting: PanelRow["waiting"];
+  orphan: boolean;
+}) {
   if (waiting === null) {
     return (
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -60,6 +72,11 @@ function WaitingCell({ waiting }: { waiting: PanelRow["waiting"] }) {
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
       <Badge variant="warning">Espera registrada</Badge>
+      {orphan ? (
+        <span className="text-2xs text-muted-foreground">
+          Espera registrada para un encargo sin actividad en la ventana.
+        </span>
+      ) : null}
       <span className="truncate font-mono text-2xs text-muted-foreground">
         {waiting.reason}
       </span>
@@ -141,8 +158,11 @@ export const PanelRowView = ({
         </span>
       </div>
 
-      {/* Espera */}
-      <WaitingCell waiting={row.waiting} />
+      {/* Espera — a wait with no lifecycle event in the window says so */}
+      <WaitingCell
+        orphan={row.waiting !== null && row.workState === null}
+        waiting={row.waiting}
+      />
 
       {/* Instante */}
       <div className="flex min-w-0 flex-col gap-0.5">
