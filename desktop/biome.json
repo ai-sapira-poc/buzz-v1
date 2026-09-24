@@ -1,6 +1,3 @@
 {
-  "extends": ["../biome.json"],
-  "files": {
-    "includes": ["**", "!src/features/tower/tower-grafo-s1-lienzo.html"]
-  }
+  "extends": ["../biome.json"]
 }
