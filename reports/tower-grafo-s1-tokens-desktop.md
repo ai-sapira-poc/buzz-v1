@@ -9,6 +9,18 @@ almacén del piloto sigue ahí y se cita como **procedencia**, con su sha propio
 sin afirmar igualdad con el árbol. Lo demás de aquel párrafo describe mi commit
 `45277235e`, no el tip de ahora.
 
+**Errata de identidad (segunda pasada, la de este PR).** El sha de §5 se
+re-deriva **al final** de esta revisión, no antes: la tabla dejó de afirmar que
+el lienzo vive «byte a byte» en una segunda ruta de `desktop/` (la que retira
+#13), y esa edición mueve el blob de `design/tower-grafo-s1-tabla-tokens.md`.
+El árbol **antes** de esta revisión (y en `origin/main` = `eebed588e`) era
+`76673ae6a97dd7afde60109dcb77943576bd9cc0eeb203c636ee49c7cac08f08`; el que viaja es
+`230ea6e100b85e40cd8cf3db3ef87e73a4ae490183b8e1245d324ac078e91467`, medido con
+`git cat-file blob <head>:design/tower-grafo-s1-tabla-tokens.md | shasum -a 256`.
+La fila del almacén no se mueve: `shasum -a 256` sobre el fichero del almacén y
+`git cat-file blob origin/main:reports/tower-grafo-s1-tokens-desktop.md` dan el
+mismo `efd00ae2…`, que es este informe en `origin/main` = `eebed588e`.
+
 **Resultado:** la última columna ya no dice «no verificado» en ninguna de las 28
 filas. Las 9 clases del handoff quedan resueltas: **5 a `fichero:línea` de
 `main` = `ab63b0129`** y **4 declaradas hueco de foundation** con su valor
@@ -429,7 +441,7 @@ $ python3 -c "import colorsys; print(..."   # hsl declarado -> sRGB
 
 | Qué | Dónde | Identidad |
 |---|---|---|
-| Tabla de tokens cerrada — **artefacto que viaja** | `design/tower-grafo-s1-tabla-tokens.md` (repo) | sha256 `76673ae6a97dd7afde60109dcb77943576bd9cc0eeb203c636ee49c7cac08f08` |
+| Tabla de tokens cerrada — **artefacto que viaja** | `design/tower-grafo-s1-tabla-tokens.md` (repo) | sha256 `230ea6e100b85e40cd8cf3db3ef87e73a4ae490183b8e1245d324ac078e91467` |
 | Tabla de tokens — **procedencia en el almacén** (fuera del repo) | `artifacts/design/tower-grafo-s1-tabla-tokens.md` | sha256 `56053d500aa80e716d8d5ccbba5567496614a0f3931ae4d63480a7d5b17cc402`, que **no** es el del árbol |
 | Este informe | `reports/tower-grafo-s1-tokens-desktop.md` (repo) — esta revisión lleva las erratas de identidad — y `artifacts/reports/tower-grafo-s1-tokens-desktop.md` (almacén) | **ya no** «igual contenido»: el almacén quedó en sha256 `efd00ae280693e618a8429e26f4f0b092d4aaabb75ab167d825cb6924aa4a780`, que es la copia del repo **antes** de estas erratas |
 | Rama / PR | `agent/tower-grafo-s1`, PR #11 `https://github.com/ai-sapira-poc/buzz-v1/pull/11` | commits de documentación, fast-forward sobre `89b85ab3b`; sin fuerza. Mi primer commit es `45277235e` |

@@ -48,8 +48,9 @@ cambio más grande que el contrato de mi stage.
 `364da5ef3` — «docs(tower): pin the approved S1 prototype beside the taxonomy it
 implements» (rebasado a `e9f0b25ab` sobre el tip `c41af27d3`):
 
-- `desktop/src/features/tower/tower-grafo-s1-lienzo.html`, la copia versionada
-  del artefacto aprobado. **Errata de identidad.** Esta línea decía «**byte por
+- `design/tower-grafo-s1-lienzo.html`, la copia versionada que sobrevive: el
+  mismo blob que `364da5ef3` dejó además en `desktop/src/features/tower/`, el
+  duplicado que retira #13. **Errata de identidad.** Esta línea decía «**byte por
   byte** el artefacto aprobado … sha256 `e9970382…` en los dos ficheros», y el
   árbol que viaja no lo sostiene: lo que viaja en esta ruta es sha256
   `a91fb3ccd683e9d37158b0e4724a0ef17dd2be849bca519abe0a81b3b8e5db88` (medido con
