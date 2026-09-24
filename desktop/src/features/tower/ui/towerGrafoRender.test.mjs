@@ -319,3 +319,165 @@ test("each surface state carries text: loading and empty are never blank", () =>
   assert.equal(countOf(empty, "tower-node"), 0);
   assert.doesNotMatch(empty, /aria-live/);
 });
+
+/* -------------------------------------------------------------------------
+ * The portfolio-read fall on the card surface (P1) and its grouping (P4).
+ *
+ * The tests below bind the whole seam — the real adapter, the real derivation
+ * and the real section — because `events ?? []` used to resolve a rejected read
+ * as a successful empty one, and a test that hands the error in as a prop
+ * cannot see that. `derivePortfolioView` is fed what React Query actually
+ * delivers when the read rejects: `isError` with the `data` it still holds.
+ * ---------------------------------------------------------------------- */
+
+/** The production read over fixed events. */
+function sourceOver(events) {
+  return createTowerBuzzSource(
+    async () => events,
+    async () => "owner",
+  );
+}
+
+/** The production read that dies, over a fixed cause. */
+function failingSource(cause) {
+  return createTowerBuzzSource(
+    async () => {
+      throw cause;
+    },
+    async () => "owner",
+  );
+}
+
+/**
+ * Drives the settled adapter result through the derivation the screen uses.
+ * `previous`/`dataUpdatedAt` are what React Query still holds from an earlier
+ * read when a refetch fails.
+ */
+async function viewFrom(source, { previous, dataUpdatedAt = 0 } = {}) {
+  const settled = await source.getPortfolio().then(
+    (data) => ({ data, cause: null }),
+    (cause) => ({ data: undefined, cause }),
+  );
+  return derivePortfolioView(
+    {
+      isPending: false,
+      isFetching: false,
+      isError: settled.cause !== null,
+      data: settled.data ?? previous,
+      dataUpdatedAt,
+      error: settled.cause,
+    },
+    () => {},
+  );
+}
+
+test("P1 pair: a rejected read is the fall notice, never an empty canvas", async () => {
+  // The lie this pair exists to stop: a dead read resolving as a list, so the
+  // surface borrows the successful empty read's meaning and the card's absence
+  // vocabulary (taxonomy §9) instead of saying the read failed.
+  const view = await viewFrom(failingSource(new Error("relay unreachable")));
+  const html = render(view);
+
+  // The false empty comes first, so a regression reports the lie it drew rather
+  // than a phase mismatch: with the rejected read resolved as a list, this is
+  // the empty canvas, and the fall notice is nowhere.
+  assert.doesNotMatch(html, /tower-empty-state/);
+  assert.match(html, /tower-error-state/);
+  assert.match(html, /adapter_unavailable/);
+  assert.doesNotMatch(html, /tower-stale-banner/);
+  assert.equal(countOf(html, "tower-node"), 0);
+  assert.doesNotMatch(html, /No run reported/);
+  assert.doesNotMatch(html, /No signal/);
+  // R7: no figure travels under a fall.
+  assert.doesNotMatch(html, /tok/);
+  assert.equal(view.phase, "unreachable");
+});
+
+test("P1 pair: a healthy read with no jobs is the empty canvas, not a fall", async () => {
+  // The other half of the pair, with its own cross-absence assertion: the case
+  // above would also pass if the section painted the fall notice over every
+  // read, so this one denies the notice on the healthy empty read.
+  const view = await viewFrom(sourceOver([]));
+  const html = render(view);
+
+  assert.equal(view.phase, "ready");
+  assert.match(html, /tower-empty-state/);
+  assert.doesNotMatch(html, /tower-error-state/);
+  assert.doesNotMatch(html, /tower-stale-banner/);
+});
+
+test("P1: a rejection after a good read keeps the cards and names the instant", async () => {
+  const good = await viewFrom(
+    sourceOver([
+      jobEvent({ kind: 43002, job: "job-a", role: "builder", at: 100 }),
+    ]),
+  );
+  const readAt = Date.parse("2026-09-23T09:40:00.000Z");
+  const view = await viewFrom(failingSource(new Error("timeout")), {
+    previous: good.lines,
+    dataUpdatedAt: readAt,
+  });
+  const html = render(view);
+
+  assert.equal(view.phase, "unreachable");
+  // D-9: the snapshot is not unmounted under a fall.
+  assert.match(html, /tower-stale-banner/);
+  assert.equal(countOf(html, "tower-node"), 1);
+  assert.doesNotMatch(html, /tower-error-state/);
+  // §1 P1: the notice names when the last good read happened — as the read
+  // carried it, not as an age computed against the render's clock — and cites
+  // the adapter's code. No figure rides the notice.
+  assert.match(html, /2026-09-23T09:40:00\.000Z/);
+  assert.match(html, /code: adapter_unavailable/);
+  assert.doesNotMatch(html, /tok/);
+  // One retry, inside the notice, and no way to dismiss it. The canvas keeps
+  // its own zoom controls on this branch, so the count of buttons is not the
+  // assertion — the notice's only action is the one that matters.
+  assert.equal((html.match(/Retry/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /aria-label="[^"]*[Cc]errar/);
+  assert.doesNotMatch(html, /aria-label="[^"]*[Dd]escartar/);
+  assert.doesNotMatch(html, /aria-label="[^"]*[Cc]lose/);
+});
+
+test("P4: the grouping label is permanent, and nothing is grouped over a fall", async () => {
+  const fallenWithoutSnapshot = await viewFrom(failingSource(new Error("x")));
+  const fallenWithSnapshot = await viewFrom(failingSource(new Error("x")), {
+    previous: [],
+    dataUpdatedAt: 1,
+  });
+  // P4's label is permanent (D4-4): it must survive every read state, including
+  // both fall branches, or the operator cannot tell what the columns are.
+  const states = [
+    derivePortfolioView(snapshot({ isPending: true }), () => {}),
+    derivePortfolioView(snapshot({ data: [] }), () => {}),
+    fallenWithoutSnapshot,
+    fallenWithSnapshot,
+  ];
+  for (const state of states) {
+    const html = render(state);
+    assert.match(html, /tower-grafo-grouping-note/);
+    // And it still names the grouping it labels. The shipped grouping is the
+    // handoff depth in this window (D1, `grafoLayers.ts`); S1's column per role
+    // was removed by `8247f7d8a`, so the role literal D4-4 drafted has no
+    // grouping left to label and must not be printed over this one.
+    assert.match(html, /depth in this window/);
+    assert.doesNotMatch(html, /Agrupado por rol/);
+  }
+
+  // On a fall with no snapshot the read is declared, and no layer and no card
+  // exist to group: the grouping is not drawn over a read that never happened.
+  // The empty canvas is denied here too, because a dead read resolved as a list
+  // is the regression this pair exists to stop — on P4's route, the same one
+  // P1 walks.
+  const fallen = render(fallenWithoutSnapshot);
+  assert.match(fallen, /tower-error-state/);
+  assert.doesNotMatch(fallen, /tower-empty-state/);
+  assert.equal(countOf(fallen, "tower-grafo-layer"), 0);
+  assert.equal(countOf(fallen, "tower-node"), 0);
+
+  // With a snapshot the last good read is kept under the fall notice (D-9), so
+  // what is grouped is that read — never the failed one.
+  const kept = render(fallenWithSnapshot);
+  assert.match(kept, /tower-stale-banner/);
+  assert.doesNotMatch(kept, /tower-error-state/);
+});

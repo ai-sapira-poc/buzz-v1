@@ -89,6 +89,7 @@ export function GrafoSection({
 
       {showingStale ? (
         <TowerStaleBanner
+          code={view.failure?.code ?? null}
           lastSuccessAt={view.lastSuccessAt}
           onRetry={view.retry}
         />

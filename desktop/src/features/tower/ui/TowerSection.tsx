@@ -36,6 +36,7 @@ export function TowerSection({ view }: { view: PortfolioView }) {
     >
       {showingStale ? (
         <TowerStaleBanner
+          code={view.failure?.code ?? null}
           lastSuccessAt={view.lastSuccessAt}
           onRetry={view.retry}
         />

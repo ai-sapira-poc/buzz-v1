@@ -3,8 +3,29 @@ import type { HandoverView } from "@/features/tower/ui/handoverState";
 import type { PortfolioView } from "@/features/tower/ui/portfolioState";
 import { PanelEmptyState } from "./PanelEmptyState";
 import { PanelErrorState, PanelStaleBanner } from "./PanelErrorState";
+import {
+  PanelHandoverFallNotice,
+  PanelHandoverStaleNotice,
+} from "./PanelHandoverNotice";
 import { PanelList } from "./PanelList";
 import { PanelLoadingState } from "./PanelLoadingState";
+import type { HandoverColumnState } from "./panelLayout";
+
+/**
+ * P3's column state, derived from the handoff read alone. The read's three
+ * branches map to the column's: answered → the closed vocabulary; still in
+ * flight → the cells say so; failed with a snapshot → the last good values,
+ * marked old; failed with nothing → the column is retired whole.
+ */
+function handoverColumnOf(view: HandoverView): HandoverColumnState {
+  if (view.phase === "unreachable") {
+    return view.lines === null
+      ? { state: "retired" }
+      : { state: "stale", lastSuccessAt: view.lastSuccessAt };
+  }
+  if (view.phase === "loading") return { state: "loading" };
+  return { state: "live" };
+}
 
 function announcementFor(
   portfolio: PortfolioView,
@@ -51,11 +72,16 @@ export function PanelSection({
   const rows =
     lines === null ? null : buildPanelRows(lines, handovers.lines ?? []);
   const handoversUnreadable = handovers.phase === "unreachable";
+  const handoverColumn = handoverColumnOf(handovers);
   const hasRows = rows !== null && rows.length > 0;
   const showingStale = portfolio.phase === "unreachable" && lines !== null;
   // A stale read whose last good result was empty: the empty state's copy
   // asserts the source answered, which is exactly what a fall withholds.
   const lastGoodWasEmpty = lines !== null && lines.length === 0 && showingStale;
+  // The handoff column only exists when the panel is drawing encargos: its fall
+  // notice is about a column that is retired or preserved, so with no rows
+  // there is nothing the notice would explain.
+  const handoffColumnSpeaks = hasRows && handoversUnreadable;
 
   return (
     <section
@@ -85,6 +111,19 @@ export function PanelSection({
           onRetry={portfolio.retry}
         />
       ) : null}
+      {handoffColumnSpeaks && handoverColumn.state === "retired" ? (
+        <PanelHandoverFallNotice
+          failure={handovers.failure}
+          onRetry={handovers.retry}
+        />
+      ) : null}
+      {handoffColumnSpeaks && handoverColumn.state === "stale" ? (
+        <PanelHandoverStaleNotice
+          failure={handovers.failure}
+          lastSuccessAt={handoverColumn.lastSuccessAt}
+          onRetry={handovers.retry}
+        />
+      ) : null}
       {portfolio.phase === "loading" && lines === null ? (
         <PanelLoadingState />
       ) : null}
@@ -103,6 +142,7 @@ export function PanelSection({
       ) : null}
       {hasRows && rows !== null ? (
         <PanelList
+          handoverColumn={handoverColumn}
           handoversUnreadable={handoversUnreadable}
           lastGoodAt={showingStale ? portfolio.lastSuccessAt : null}
           readFailed={showingStale}

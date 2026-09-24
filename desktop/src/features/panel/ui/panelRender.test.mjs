@@ -130,10 +130,13 @@ test("the panel never renders a blocked cell or a bare zero", () => {
   assert.doesNotMatch(html, /0 blocked/);
 });
 
-test("a job with no parent says so in words", () => {
+test("a job with no handoff reads as the healthy empty, `desconocido`", () => {
   const html = render({ portfolio: snapshot({ data: [line()] }) });
-  assert.match(html, /sin padre registrado/);
-  assert.match(html, /sin resultado registrado/);
+  assert.match(html, /sin relevo registrado/);
+  assert.match(
+    html,
+    /Sin relevo registrado para este encargo: el valor dibujable es `desconocido`\./,
+  );
   assert.match(html, /sin hilo/);
 });
 

@@ -1,20 +1,35 @@
 import type { PanelRow } from "@/features/panel/domain/panel";
 import { PanelRowView } from "./PanelRow";
-import { PANEL_COLUMNS, PANEL_GRID } from "./panelLayout";
+import {
+  PANEL_COLUMNS,
+  PANEL_COLUMNS_NO_HANDOFF,
+  PANEL_GRID,
+  PANEL_GRID_NO_HANDOFF,
+  type HandoverColumnState,
+} from "./panelLayout";
 
 /**
  * The six-column header. It is `role="presentation"` and hidden below `sm`:
  * each row carries its own state, so the header is a visual label, not a
  * navigable table. Exported so the loading state can keep it visible (D-8).
+ *
+ * `handoffColumn` is false only when P3's column is retired whole: the header
+ * must then drop that column too, or the header would name a column no row
+ * draws.
  */
-export function PanelHeader() {
+export function PanelHeader({
+  handoffColumn = true,
+}: {
+  handoffColumn?: boolean;
+} = {}) {
+  const columns = handoffColumn ? PANEL_COLUMNS : PANEL_COLUMNS_NO_HANDOFF;
   return (
     <div
       aria-hidden="true"
-      className={`${PANEL_GRID} hidden border-b border-border/50 bg-muted/40 text-2xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid`}
+      className={`${handoffColumn ? PANEL_GRID : PANEL_GRID_NO_HANDOFF} hidden border-b border-border/50 bg-muted/40 text-2xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid`}
       role="presentation"
     >
-      {PANEL_COLUMNS.map((column) => (
+      {columns.map((column) => (
         <span key={column}>{column}</span>
       ))}
     </div>
@@ -29,24 +44,28 @@ export function PanelList({
   rows,
   refreshing,
   handoversUnreadable,
+  handoverColumn,
   readFailed,
   lastGoodAt,
 }: {
   rows: PanelRow[];
   refreshing: boolean;
-  /** True when the handoff read failed: parent/thread cells must say so. */
+  /** True when the handoff read failed: the thread cell must say so. */
   handoversUnreadable: boolean;
+  /** P3's column state for this render, shared by the header and every row. */
+  handoverColumn: HandoverColumnState;
   /** True when the portfolio read failed: the wait cell must not claim now. */
   readFailed: boolean;
   /** The instant of the last good portfolio read, when there is one. */
   lastGoodAt: string | null;
 }) {
+  const handoffRetired = handoverColumn.state === "retired";
   return (
     <div
       className="overflow-hidden rounded-xl border border-border/70 bg-card/40"
       data-testid="panel-list"
     >
-      <PanelHeader />
+      <PanelHeader handoffColumn={!handoffRetired} />
       <ul
         aria-label="El panel — encargos en la ventana"
         className="divide-y divide-border/50"
@@ -54,6 +73,7 @@ export function PanelList({
       >
         {rows.map((row) => (
           <PanelRowView
+            handoverColumn={handoverColumn}
             handoversUnreadable={handoversUnreadable}
             key={row.jobId}
             lastGoodAt={lastGoodAt}
