@@ -303,6 +303,26 @@ $ git show ab63b0129:desktop/src/features/agent-memory/ui/MemorySection.tsx | se
 $ git show ab63b0129:desktop/package.json | sed -n '106p'
     "tailwindcss": "^4.3.0",
 
+Seis líneas más que la tabla cita, para que ninguna quede sin `sed` propio:
+
+$ git show ab63b0129:desktop/tailwind.config.js | sed -n '127p'
+          border: "hsl(var(--sidebar-border))",
+
+$ git show ab63b0129:desktop/src/features/panel/ui/PanelRow.tsx | sed -n '60p'
+      <div className="flex min-w-0 flex-col gap-0.5">
+
+$ git show ab63b0129:desktop/src/features/panel/ui/PanelRow.tsx | sed -n '62p'
+        <span className="text-2xs text-muted-foreground">
+
+$ git show ab63b0129:desktop/src/features/panel/ui/PanelRow.tsx | sed -n '80p'
+      <span className="truncate font-mono text-2xs text-muted-foreground">
+
+$ git show ab63b0129:desktop/src/features/projects/ui/ProjectDetailChrome.tsx | sed -n '101p'
+            className="flex shrink-0 items-center gap-1.5 rounded-md px-1 py-1 font-medium transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+
+$ git show ab63b0129:desktop/src/features/projects/ui/ProjectDetailChrome.tsx | sed -n '125p'
+              className="min-w-0 truncate px-0.5 font-medium opacity-60"
+
 ## 3. Lo que NO está (y cómo lo sé)
 
 Cinco negativos sostienen filas de la tabla; ninguno es una impresión:
@@ -407,7 +427,7 @@ $ python3 -c "import colorsys; print(..."   # hsl declarado -> sRGB
 
 | Qué | Dónde | Identidad |
 |---|---|---|
-| Tabla de tokens cerrada | `artifacts/design/tower-grafo-s1-tabla-tokens.md` | sha256 `1d9cffc823731146dd54bdc4bb7301ff90b8946522dbed639fd99dcf81e6cc27` |
+| Tabla de tokens cerrada | `artifacts/design/tower-grafo-s1-tabla-tokens.md` | sha256 `56053d500aa80e716d8d5ccbba5567496614a0f3931ae4d63480a7d5b17cc402` |
 | Este informe | `reports/tower-grafo-s1-tokens-desktop.md` (repo, rama `agent/tower-grafo-s1`) y `artifacts/reports/tower-grafo-s1-tokens-desktop.md` | igual contenido |
 | Rama / PR | `agent/tower-grafo-s1`, PR #11 `https://github.com/ai-sapira-poc/buzz-v1/pull/11` | commits de documentación, fast-forward sobre `89b85ab3b`; sin fuerza. Mi primer commit es `45277235e` |
 
