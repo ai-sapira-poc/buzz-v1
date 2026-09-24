@@ -17,7 +17,14 @@ import { installMockBridge } from "../helpers/bridge";
  * The guards that turn this red: an absent cost or model painted as a measured
  * zero, a total summed over a partial read, a connector drawn on a surface with
  * no edge producer, a grouping that does not say what it is, a blank surface
- * state, or a canvas that leaves the tab order.
+ * state, a `requested` card presented as a measured state, or a canvas that
+ * leaves the tab order.
+ *
+ * **Every line below is a fixture.** Nothing else can feed this canvas through
+ * the mock bridge, and a fixture is evidence of nothing: in particular the
+ * `requested` line is seeded because the fold admits that state, not because
+ * anyone emits 43001 today — no caller passes `"created"` (taxonomy §2). The
+ * card is required to say so out loud, and this spec asserts it does.
  *
  * Each case boots the app once, so cases are merged where they share a boot:
  * the app shell's own gate (`community.isReady`) is the slowest and least
@@ -175,6 +182,8 @@ const FOUR_LINES: SeedLine[] = [
     summary: "drawing the cards",
   }),
   line("buzz-autonomy", "builder", { at: "2026-09-23T20:03:00.000Z" }),
+  // Fixture, and the only place `requested` can come from today: 43001 has no
+  // caller emitting it (taxonomy §2). Its card must not read as a measurement.
   line("npl-mp", "reviewer", {
     at: "2026-09-23T20:02:00.000Z",
     state: "requested",
@@ -216,9 +225,20 @@ test.describe("tower grafo s1 — cards, no edges, grouped by role", () => {
     await expect(page.getByTestId("tower-node")).toContainText([
       "Running",
       "Running",
-      "Requested",
+      "Requested · no producer today",
       "No run reported",
     ]);
+
+    // `requested` (43001) is the one legible state with no caller emitting it
+    // today, so its chip may not read as a measured state: it carries the mark,
+    // in words, with no figure. Scoped to the card so the assertion does not
+    // depend on card order.
+    const requestedCard = page
+      .getByTestId("tower-node")
+      .filter({ hasText: "npl-mp" });
+    await expect(requestedCard.getByTestId("tower-node-state")).toHaveText(
+      "Requested · no producer today",
+    );
 
     // The grouping is named for what it is, and says where depth will come from
     // — a column is a role, not a level.

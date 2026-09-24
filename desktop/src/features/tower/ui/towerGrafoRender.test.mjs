@@ -107,6 +107,11 @@ test("real agent work renders as one card per job, grouped by role", async () =>
   assert.doesNotMatch(html, /tower-error-state/);
   assert.match(html, /Running/);
   assert.match(html, /Requested/);
+  // `requested` (43001) has no caller emitting it today, so the chip may not
+  // read as a measured state: it carries the mark, in words, with no figure.
+  // `>Requested<` is the unmarked chip — reverting the mark turns this red.
+  assert.match(html, /Requested · no producer today/);
+  assert.doesNotMatch(html, />Requested</);
   // The producer's own line rides the card; nothing is invented for the rest.
   assert.match(html, /drawing cards/);
 });

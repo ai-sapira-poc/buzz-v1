@@ -15,7 +15,9 @@ import { formatRecency, formatTokens } from "./portfolioFormat";
  * identity, the state the producer reported, the producer's own line, the
  * recorded wait if one was published, the last readable instant, and the model
  * and spend. The last two have no producer on this read, so the card prints
- * "Not available" for them; it never prints `$0` and never sums a total.
+ * "Not available" for them; it never prints `$0` and never sums a total. One
+ * reported state has no producer either, and says so: see
+ * {@link STATES_WITHOUT_PRODUCER}.
  *
  * The card draws no edge: S1 has no edge reader mounted on this surface, and a
  * connector invented here would be a claim the data does not make.
@@ -28,6 +30,28 @@ const WORK_STATE_LABEL: Record<WorkState, string> = {
   failed: "Failed",
   cancelled: "Cancelled",
 };
+
+/**
+ * The one legible state with no caller emitting it today: the fold admits
+ * `requested`, but nothing publishes the kind that folds to it (taxonomy §2),
+ * so on real data nobody produces this state — only a fixture can seed it, and
+ * a fixture is not evidence of a producer. The card therefore refuses to
+ * present it as a state someone measured: it carries the mark below, in words,
+ * with no figure. Empty this set the day a producer exists.
+ */
+const STATES_WITHOUT_PRODUCER = new Set<WorkState>(["requested"]);
+
+/**
+ * The chip's text. `work: null` is "nothing was said", which is not the same as
+ * the mark: a state nobody emitted still needs naming, but as unobserved.
+ */
+function stateLabel(work: PortfolioLine["work"]): string {
+  if (work === null) return "No run reported";
+  const label = WORK_STATE_LABEL[work.state];
+  return STATES_WITHOUT_PRODUCER.has(work.state)
+    ? `${label} · no producer today`
+    : label;
+}
 
 /**
  * The left edge colour is the state the producer reported, or the neutral
@@ -96,7 +120,7 @@ export const GrafoCard = React.forwardRef<HTMLLIElement, GrafoCardProps>(
             className="shrink-0 rounded-sm border border-border/60 bg-muted/40 px-1 text-2xs"
             data-testid="tower-node-state"
           >
-            {work === null ? "No run reported" : WORK_STATE_LABEL[work.state]}
+            {stateLabel(work)}
           </span>
         </div>
 
