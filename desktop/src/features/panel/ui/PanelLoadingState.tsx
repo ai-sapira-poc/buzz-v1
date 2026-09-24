@@ -16,6 +16,16 @@ export function PanelLoadingState() {
       className="overflow-hidden rounded-xl border border-border/70 bg-card/40"
       data-testid="panel-loading-state"
     >
+      {/* The contract's §4 loading literal, in the surface and not only in the
+          spoken line: a bare skeleton is indistinguishable from a surface that
+          never loaded (the gate 3% defect). The six-column header stays below
+          it (D-8). */}
+      <p
+        className="border-b border-border/50 px-3 py-2.5 text-sm text-muted-foreground"
+        data-testid="panel-loading-text"
+      >
+        Leyendo — aún buscando, no es un vacío
+      </p>
       <PanelHeader />
       {LOADING_ROWS.map((row) => (
         <div

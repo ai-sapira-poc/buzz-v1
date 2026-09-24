@@ -16,8 +16,11 @@ function announcementFor(
       : "Encargos leídos";
   }
   if (portfolio.phase === "unreachable") {
-    return rows === null
-      ? "No se pudo leer el registro de encargos"
+    if (rows === null) return "No se pudo leer el registro de encargos";
+    // A fall whose last good read was empty shows no row at all: announcing
+    // "se muestran datos viejos" would name rows the screen is not drawing.
+    return rows.length === 0
+      ? "La lectura de encargos falló; la última lectura buena no encontró encargos"
       : "La lectura de encargos falló; se muestran datos viejos";
   }
   if (rows === null || rows.length === 0) {
@@ -50,6 +53,9 @@ export function PanelSection({
   const handoversUnreadable = handovers.phase === "unreachable";
   const hasRows = rows !== null && rows.length > 0;
   const showingStale = portfolio.phase === "unreachable" && lines !== null;
+  // A stale read whose last good result was empty: the empty state's copy
+  // asserts the source answered, which is exactly what a fall withholds.
+  const lastGoodWasEmpty = lines !== null && lines.length === 0 && showingStale;
 
   return (
     <section
@@ -74,6 +80,7 @@ export function PanelSection({
       {showingStale ? (
         <PanelStaleBanner
           code={portfolio.failure?.code ?? null}
+          lastGoodWasEmpty={lastGoodWasEmpty}
           lastSuccessAt={portfolio.lastSuccessAt}
           onRetry={portfolio.retry}
         />
@@ -82,8 +89,12 @@ export function PanelSection({
         <PanelLoadingState />
       ) : null}
       {/* Keyed on the snapshot, not on `ready`: a stale read whose last good
-          result was empty must still explain itself under the stale banner. */}
-      {lines !== null && lines.length === 0 ? <PanelEmptyState /> : null}
+          result was empty must still explain itself — but under the stale
+          banner, never with the empty state's «the source answered» copy, which
+          is false while the read is failing. */}
+      {!showingStale && lines !== null && lines.length === 0 ? (
+        <PanelEmptyState />
+      ) : null}
       {portfolio.phase === "unreachable" && lines === null ? (
         <PanelErrorState
           failure={portfolio.failure}
@@ -93,6 +104,8 @@ export function PanelSection({
       {hasRows && rows !== null ? (
         <PanelList
           handoversUnreadable={handoversUnreadable}
+          lastGoodAt={showingStale ? portfolio.lastSuccessAt : null}
+          readFailed={showingStale}
           refreshing={portfolio.refreshing}
           rows={rows}
         />

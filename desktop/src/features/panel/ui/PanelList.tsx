@@ -29,11 +29,17 @@ export function PanelList({
   rows,
   refreshing,
   handoversUnreadable,
+  readFailed,
+  lastGoodAt,
 }: {
   rows: PanelRow[];
   refreshing: boolean;
   /** True when the handoff read failed: parent/thread cells must say so. */
   handoversUnreadable: boolean;
+  /** True when the portfolio read failed: the wait cell must not claim now. */
+  readFailed: boolean;
+  /** The instant of the last good portfolio read, when there is one. */
+  lastGoodAt: string | null;
 }) {
   return (
     <div
@@ -50,6 +56,8 @@ export function PanelList({
           <PanelRowView
             handoversUnreadable={handoversUnreadable}
             key={row.jobId}
+            lastGoodAt={lastGoodAt}
+            readFailed={readFailed}
             row={row}
           />
         ))}

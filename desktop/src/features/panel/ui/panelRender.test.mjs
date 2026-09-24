@@ -47,6 +47,22 @@ test("loading keeps the six-column header and never claims a wait", () => {
   assert.doesNotMatch(html, /Sin señal/);
 });
 
+test("F4: the loading state says it is reading, in text that is not sr-only", () => {
+  // The contract §4 loading literal, carried by the surface itself: before this
+  // it lived only in `panel-status-announcement`'s `<p className="sr-only">`, so
+  // the operator saw five skeleton rows and no words (gate 3%).
+  const html = render({ portfolio: snapshot({ isPending: true }) });
+  const carrier = html.match(
+    /<p[^>]*data-testid="panel-loading-text"[^>]*>([\s\S]*?)<\/p>/,
+  );
+  assert.ok(carrier, "the loading line must be carried by its own element");
+  assert.doesNotMatch(carrier[0], /sr-only/);
+  assert.match(carrier[1], /Leyendo — aún buscando, no es un vacío/);
+  // The six-column header the product decision keeps visible (D-8) is still
+  // there, next to the words.
+  assert.match(html, /Quién/);
+});
+
 test("an empty read names the window and says it is not a read failure", () => {
   const html = render({ portfolio: snapshot({ data: [] }) });
   assert.match(html, /No hay encargos en este periodo/);
