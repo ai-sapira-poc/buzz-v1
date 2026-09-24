@@ -62,10 +62,17 @@ export function PanelErrorState({
  */
 export function PanelStaleBanner({
   lastSuccessAt,
+  lastGoodWasEmpty = false,
   code,
   onRetry,
 }: {
   lastSuccessAt: string | null;
+  /**
+   * The preserved snapshot held no encargos. The banner then cannot promise
+   * rows below it, and must not borrow the empty state's «the source answered»
+   * copy — that is the claim a fall withholds.
+   */
+  lastGoodWasEmpty?: boolean;
   /** The adapter's citable failure code, or `null` when it gave none. */
   code: string | null;
   onRetry: () => void;
@@ -75,9 +82,13 @@ export function PanelStaleBanner({
       <AlertTitle>La lectura de encargos falló</AlertTitle>
       <AlertDescription className="flex flex-col gap-1.5">
         <span>
-          {lastSuccessAt
-            ? `Se muestra la última lectura buena, de ${lastSuccessAt}. Las filas de abajo son datos viejos, no actuales.`
-            : "Se muestra la última lectura buena. Las filas de abajo son datos viejos, no actuales."}
+          {lastGoodWasEmpty
+            ? lastSuccessAt
+              ? `La última lectura buena, de ${lastSuccessAt}, no encontró encargos. La lectura falló, así que esta pantalla no puede decir si ahora hay alguno ni cuántos.`
+              : "La última lectura buena no encontró encargos. La lectura falló, así que esta pantalla no puede decir si ahora hay alguno ni cuántos."
+            : lastSuccessAt
+              ? `Se muestra la última lectura buena, de ${lastSuccessAt}. Las filas de abajo son datos viejos, no actuales.`
+              : "Se muestra la última lectura buena. Las filas de abajo son datos viejos, no actuales."}
         </span>
         {code ? (
           <code className="font-mono text-2xs text-muted-foreground">

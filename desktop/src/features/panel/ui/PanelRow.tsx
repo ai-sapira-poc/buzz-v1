@@ -32,15 +32,48 @@ const PARENT_OUTCOME_TEXT: Record<HandoverParentOutcome, string> = {
 const UNREADABLE_HANDOVERS = "El registro de relevos no se pudo leer.";
 
 /**
+ * The last good read's instant as the UTC clock design §2.4 fixes for the cell
+ * («de las [HH:MM] UTC») — a clock, not a count, and not the raw ISO the section
+ * notice carries. An instant the platform cannot parse names no hour rather
+ * than inventing one.
+ */
+function clockUtc(iso: string | null): string | null {
+  if (iso === null) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const hour = String(at.getUTCHours()).padStart(2, "0");
+  const minute = String(at.getUTCMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
+}
+
+/**
+ * The cell's provenance line once the section's read has failed (design §2.4,
+ * rama B). Without it the preserved snapshot's value — «sin señal de espera
+ * registrada» for a row that carried no wait event — would be read as «nothing
+ * waits» over a read that never answered. With it the value travels marked as
+ * old, and with the hour of the read it came from.
+ */
+function provenanceLine(lastGoodAt: string | null): string {
+  const clock = clockUtc(lastGoodAt);
+  const from = clock === null ? "" : `, de las ${clock} UTC`;
+  return `Dato de la última lectura buena${from}. La lectura actual falló: esto es un dato viejo, no actual.`;
+}
+
+/**
  * The **Espera** cell. It is not a blocked column and it is never a figure: it
  * names the recorded reason and its instant, or — when nothing is recorded — it
  * says "sin señal" and says why that is not "nothing waits". The producer of
  * the wait is best-effort, so absence of the event is not evidence of absence
  * of the wait.
  *
- * The cell's two other states — error and loading — are the section's, not the
- * row's: a read that fails, or is still in flight, never draws rows at all, so
- * this cell cannot claim "sin señal" over a read that did not happen.
+ * The cell's loading state is the section's, not the row's — a read still in
+ * flight never draws rows. Its **error** state is not: a fall that keeps a
+ * previous snapshot draws the rows and the stale banner, so this cell can be on
+ * screen over a read that failed. Both shapes of the cell then mark the
+ * snapshot's own value as old (design §2.4, rama B) rather than leaving it
+ * bare — the empty one and the one that carries a recorded wait. Without the
+ * line a bare «sin señal», or a wait's «Desde <instante>», would be read as the
+ * state *now* when the truth is that nobody asked.
  *
  * `orphan` is the case the panel would lose by folding silently: the wait
  * arrived without the job's lifecycle event (a publication that died on the
@@ -51,12 +84,30 @@ const UNREADABLE_HANDOVERS = "El registro de relevos no se pudo leer.";
 function WaitingCell({
   waiting,
   orphan,
+  readFailed,
+  lastGoodAt,
 }: {
   waiting: PanelRow["waiting"];
   orphan: boolean;
+  /** The portfolio read failed: the cell must not claim the current state. */
+  readFailed: boolean;
+  /** The instant of the last good portfolio read, when there is one. */
+  lastGoodAt: string | null;
 }) {
   if (waiting === null) {
-    return (
+    return readFailed ? (
+      // §2.4 rama B: the snapshot's own value, then the line that marks it old.
+      // The healthy empty's caveat («esto no significa que nada espere») is not
+      // drawn: it would be a claim about now, which the failed read withholds.
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-sm text-muted-foreground">
+          Sin señal de espera registrada
+        </span>
+        <span className="text-2xs text-muted-foreground">
+          {provenanceLine(lastGoodAt)}
+        </span>
+      </div>
+    ) : (
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="text-sm text-muted-foreground">Sin señal</span>
         <span className="text-2xs text-muted-foreground">
@@ -82,6 +133,11 @@ function WaitingCell({
       </span>
       <span className="text-2xs text-muted-foreground">{cause}</span>
       <span className="text-2xs text-muted-foreground">Desde {waiting.at}</span>
+      {readFailed ? (
+        <span className="text-2xs text-muted-foreground">
+          {provenanceLine(lastGoodAt)}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -90,6 +146,10 @@ type PanelRowProps = {
   row: PanelRow;
   /** True when the handoff read failed: parent/thread cells must say so. */
   handoversUnreadable: boolean;
+  /** True when the portfolio read failed: the wait cell must not claim now. */
+  readFailed: boolean;
+  /** The instant of the last good portfolio read, when there is one. */
+  lastGoodAt: string | null;
 } & React.ComponentPropsWithoutRef<"li">;
 
 /**
@@ -101,6 +161,8 @@ type PanelRowProps = {
 export const PanelRowView = ({
   row,
   handoversUnreadable,
+  readFailed,
+  lastGoodAt,
   className,
   ...rest
 }: PanelRowProps) => {
@@ -160,7 +222,9 @@ export const PanelRowView = ({
 
       {/* Espera — a wait with no lifecycle event in the window says so */}
       <WaitingCell
+        lastGoodAt={lastGoodAt}
         orphan={row.waiting !== null && row.workState === null}
+        readFailed={readFailed}
         waiting={row.waiting}
       />
 
