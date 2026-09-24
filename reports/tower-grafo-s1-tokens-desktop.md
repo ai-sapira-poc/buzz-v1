@@ -315,6 +315,12 @@ ab63b012900def60a16ca39d32d3515a0be81e50
 
 --- negativos (lo que NO está, y cómo lo sé) ---
 
+Comando 1 — la variante `success` del chip no tiene llamadas; comando 2 — la variante
+`info`, tampoco; comando 3 — el contenedor del panel no lleva sombra; comando 4 — no
+hay banda de procedencia (`fixture`) en la superficie; comando 5 — la superficie no
+pinta texto con color explícito. La nota de diseño cita estos números como
+«§3, comando N».
+
 $ git grep -n 'variant="success"' ab63b0129 -- desktop/src
 (exit 1, sin coincidencias)
 
@@ -401,9 +407,9 @@ $ python3 -c "import colorsys; print(..."   # hsl declarado -> sRGB
 
 | Qué | Dónde | Identidad |
 |---|---|---|
-| Tabla de tokens cerrada | `artifacts/design/tower-grafo-s1-tabla-tokens.md` | sha256 `0f4e63d68f43243486e2e69525a77b2ce49c040579ebc3557b80f672574868a7` |
+| Tabla de tokens cerrada | `artifacts/design/tower-grafo-s1-tabla-tokens.md` | sha256 `1d9cffc823731146dd54bdc4bb7301ff90b8946522dbed639fd99dcf81e6cc27` |
 | Este informe | `reports/tower-grafo-s1-tokens-desktop.md` (repo, rama `agent/tower-grafo-s1`) y `artifacts/reports/tower-grafo-s1-tokens-desktop.md` | igual contenido |
-| Rama / PR | `agent/tower-grafo-s1`, PR #11 `https://github.com/ai-sapira-poc/buzz-v1/pull/11` | commit de documentación, fast-forward sobre `aebd8dc03`; sin fuerza |
+| Rama / PR | `agent/tower-grafo-s1`, PR #11 `https://github.com/ai-sapira-poc/buzz-v1/pull/11` | commits de documentación, fast-forward sobre `89b85ab3b`; sin fuerza. Mi primer commit es `45277235e` |
 
 - **Al revisor:** los `fichero:línea` son de `main` = `ab63b0129`, no del tip del
   PR. Verificar contra ese commit.
@@ -413,15 +419,19 @@ $ python3 -c "import colorsys; print(..."   # hsl declarado -> sRGB
   usan otros sitios. Si el chip del 43008 debe heredar el token adaptativo de la
   comunidad, es cambiar una cadena en `badge.tsx`. No lo he hecho: no es la
   columna que se me pidió cerrar.
-- **Estado de las refs:** empujado con `HEAD:refs/heads/agent/tower-grafo-s1`
-  (fast-forward desde `aebd8dc03`, sin `--force`). **No he movido ninguna ref
-  local**, así que el worktree que tiene la rama cogida no queda desincronizado
-  (verá el avance al hacer `git pull`). El tip local
-  `544a0e258` (`docs(tower): close the requested decision…`) **no está en el
-  remoto**: lo vi en el worktree del arquitecto y no lo he tocado ni empujado.
-  Los hooks de pre-commit/pre-push cuelgan en este entorno (`just desktop-fix`
-  invoca `pnpm`), así que commit y push van con `--no-verify`; el cambio es un
-  fichero de `reports/`, fuera de todas las lanes globadas.
+- **Estado de las refs:** empujado con `HEAD:refs/heads/agent/tower-grafo-s1`,
+  fast-forward `89b85ab3b..45277235e`, sin `--force`. **No he movido ninguna ref
+  local** (trabajé en un worktree detached), así que el worktree que tiene la
+  rama cogida no queda desincronizado: verá el avance al hacer `git pull`. El
+  commit `544a0e258` que vi local en el worktree del arquitecto ya está en el
+  remoto como ancestro de `89b85ab3b`; no lo he tocado.
+- **Los hooks corrieron, y `--no-verify` no hizo falta.** El push pasó la puerta
+  completa del repo: `branch-skew`, `push-head-scope`, `file-size-check`,
+  `desktop-check` (biome), `desktop-typecheck` (tsc) y `desktop-test`
+  (**6756 pass, 0 fail**, 176 s), en ~200 s de reloj. Las lanes de `desktop/**`
+  se disparan por el diff de la rama contra `origin/main`, no por mi fichero: mi
+  cambio es un `.md` en `reports/`, que no está en ninguna raíz gobernada por el
+  ratchet de tamaño.
 - **Si el maestro quiere la nota en el PR:** hoy la tabla vive solo en el almacén
   del piloto, como todas las notas de diseño anteriores. Moverla crea un
   `design/` de primer nivel en el repo que hoy no existe; lo dejo a decisión
