@@ -63,6 +63,13 @@ nombre del fichero; y el llamador de `publish_delegation` está en `capabilities
 la raíz del piloto, no en `control_plane/`. Las rutas del piloto son relativas a
 `experiments/buzz-autonomy/`.
 
+**Tercer defecto de la misma clase, corregido en la ronda de cierre.** La fila de
+`modelo` de §5 citaba `telemetry.py` sin directorio; bajo la regla anterior, la ruta
+relativa a `experiments/buzz-autonomy/` es `telemetry.py`, que no existe (falla
+`git cat-file -e ab63b0129:experiments/buzz-autonomy/telemetry.py`). El fichero es
+`control_plane/telemetry.py`, y su línea 135 es la que sostiene la afirmación
+(`span.set_attribute("gen_ai.request.model", model)`). La cita ahora lo nombra.
+
 ---
 
 ## 2. Taxonomía: los cinco estados de tarjeta legibles de 43001-43006
@@ -170,7 +177,7 @@ No confundirlo con la celda de bloqueo: son cosas distintas.
 
 | Campo | Productor | Qué dice la tarjeta |
 |---|---|---|
-| **modelo** | ninguno en la lectura; `gen_ai.request.model` vive en el span de turno (`telemetry.py`), que no está vivo ni se lee | «no disponible» con la razón |
+| **modelo** | ninguno en la lectura; `gen_ai.request.model` vive en el span de turno (`control_plane/telemetry.py:135`), que no está vivo ni se lee | «no disponible» con la razón |
 | **coste** | ninguno: `towerJobFold.ts:98` `cost: null` | «no disponible», **nunca `$0`**; ningún total |
 | **profundidad** | la arista padre→hijo **existe y está mergeada** (`43007`, `kinds.ts:35`; PR #7 → `e2319442d`), pero queda **fuera de S1 por alcance** (aristas = S2) | la tarjeta se agrupa por `role`; no es «sin señal» ni «sin productor» |
 
