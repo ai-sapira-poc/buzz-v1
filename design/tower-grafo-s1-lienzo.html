@@ -8,12 +8,18 @@
   Prototipo autocontenido. El piloto solo valida HTML autocontenido (no hay adaptador
   consciente del paquete @sapira/ui): esto es composicion token-based sobre el
   foundation_block de Sapira 0.13.1, VERBATIM, no la adopcion React del Design System.
-  Contratos que obedece:
-    product/tower-grafo-s1-tarjetas.md (PRD-TOWER-F1-0006) sha256 b76175df
-    product/tower-grafo-s1-procedencia.md (PRD-TOWER-F1-0007) sha256 7135e703
-    desktop/src/features/tower/tower-grafo-s1-taxonomia.md sha256 d2129140
-    tower/especificacion-seccion-armazon.md (R1-R7) sha256 0327b6fe
-    reviews/verdict-tower-grafo-slice1.md (H1..H7) sha256 8697d3e8
+  Contratos que obedece (se cita la unica copia versionada en esta PR; el resto vive
+  en el almacen del piloto y NO esta versionado aqui, por eso no lleva sha):
+    desktop/src/features/tower/tower-grafo-s1-taxonomia.md sha256 54abe8dd
+      (versionada en esta PR)
+    product/tower-grafo-s1-tarjetas.md (PRD-TOWER-F1-0006; del almacen del piloto,
+      no versionada en esta PR)
+    product/tower-grafo-s1-procedencia.md (PRD-TOWER-F1-0007; del almacen del piloto,
+      no versionada en esta PR)
+    tower/especificacion-seccion-armazon.md (R1-R7; del almacen del piloto,
+      no versionada en esta PR)
+    reviews/verdict-tower-grafo-slice1.md (H1..H7; del almacen del piloto,
+      no versionada en esta PR)
   Reglas: sin aristas; NO se dibuja celda de bloqueo; modelo y coste ausentes =
   «no disponible», nunca 0 y nunca un total; vacio / carga / error con texto propio.
   Sin emoji, sin SVG inline, sin estilos ni scripts externos, sin tokens --custom,
