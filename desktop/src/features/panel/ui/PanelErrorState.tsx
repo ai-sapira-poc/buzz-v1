@@ -5,8 +5,10 @@ import type { TowerFailure } from "@/features/tower/ui/portfolioState";
 /**
  * The panel read failed and there is no previous snapshot. A failed read is
  * never drawn as empty: no figure is shown, and the motive travels with the
- * error so the operator can tell "nothing here" from "it broke". `Alert` already
- * carries `role="alert"` in this design system, so no second role is added.
+ * error — the adapter's own message plus the citable code it produced, when it
+ * produced one — so the operator can tell "nothing here" from "it broke".
+ * `Alert` already carries `role="alert"` in this design system, so no second
+ * role is added.
  */
 export function PanelErrorState({
   failure,
@@ -33,6 +35,13 @@ export function PanelErrorState({
             <code className="font-mono text-2xs">{failure.message}</code>
           </span>
         ) : null}
+        {/* The citable code the adapter produced. `null` means it supplied
+            none: the notice then says nothing rather than coining one. */}
+        {failure?.code ? (
+          <code className="font-mono text-2xs text-muted-foreground">
+            code: {failure.code}
+          </code>
+        ) : null}
         <Button
           className="self-start"
           onClick={onRetry}
@@ -48,14 +57,17 @@ export function PanelErrorState({
 
 /**
  * The read failed but a previous one is on screen: keep the rows and say, at the
- * top, that they are old. The error never replaces the list with the empty
- * state (D-9).
+ * top, that they are old — and which failure produced them, by its citable code.
+ * The error never replaces the list with the empty state (D-9).
  */
 export function PanelStaleBanner({
   lastSuccessAt,
+  code,
   onRetry,
 }: {
   lastSuccessAt: string | null;
+  /** The adapter's citable failure code, or `null` when it gave none. */
+  code: string | null;
   onRetry: () => void;
 }) {
   return (
@@ -67,6 +79,11 @@ export function PanelStaleBanner({
             ? `Se muestra la última lectura buena, de ${lastSuccessAt}. Las filas de abajo son datos viejos, no actuales.`
             : "Se muestra la última lectura buena. Las filas de abajo son datos viejos, no actuales."}
         </span>
+        {code ? (
+          <code className="font-mono text-2xs text-muted-foreground">
+            code: {code}
+          </code>
+        ) : null}
         <Button
           className="self-start"
           onClick={onRetry}

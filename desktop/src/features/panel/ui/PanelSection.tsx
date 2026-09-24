@@ -73,6 +73,7 @@ export function PanelSection({
       </p>
       {showingStale ? (
         <PanelStaleBanner
+          code={portfolio.failure?.code ?? null}
           lastSuccessAt={portfolio.lastSuccessAt}
           onRetry={portfolio.retry}
         />
