@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tower Control — Grafo S1 — lienzo de encargos (tarjetas en columnas, sin aristas)</title>
+<!--
+  Prototipo autocontenido. El piloto solo valida HTML autocontenido (no hay adaptador
+  consciente del paquete @sapira/ui): esto es composicion token-based sobre el
+  foundation_block de Sapira 0.13.1, VERBATIM, no la adopcion React del Design System.
+  Contratos que obedece:
+    product/tower-grafo-s1-tarjetas.md (PRD-TOWER-F1-0006) sha256 b76175df
+    product/tower-grafo-s1-procedencia.md (PRD-TOWER-F1-0007) sha256 7135e703
+    architecture/tower-grafo-s1-taxonomia-estados.md sha256 d454bf0f
+    tower/especificacion-seccion-armazon.md (R1-R7) sha256 0327b6fe
+    reviews/verdict-tower-grafo-slice1.md (H1..H7) sha256 8697d3e8
+  Reglas: sin aristas; NO se dibuja celda de bloqueo; modelo y coste ausentes =
+  «no disponible», nunca 0 y nunca un total; vacio / carga / error con texto propio.
+  Sin emoji, sin SVG inline, sin estilos ni scripts externos, sin tokens --custom,
+  sin !important. Color, fondo, tipografia, radio, sombra, padding, margin y gap solo
+  por var(--token) de la foundation; font-size en rem.
+  Los datos del lienzo son FIXTURE ILUSTRATIVO, marcado en la superficie renderizada.
+-->
+<style id="sapira-foundation">
+:root {
+  --color-border-default: #d8d4cf;
+  --color-border-focus: #a93737;
+  --color-border-strong: #d8d4cf;
+  --color-border-subtle: #26251e1a;
+  --color-brand: #c54444;
+  --color-brand-foreground: #FFFFFF;
+  --color-feedback-error: #dc2626;
+  --color-feedback-error-bg: #fef2f2;
+  --color-feedback-info: #2563eb;
+  --color-feedback-info-bg: #eff6ff;
+  --color-feedback-success: #16a34a;
+  --color-feedback-success-bg: #f0fdf4;
+  --color-feedback-warning: #d97706;
+  --color-feedback-warning-bg: #fffbeb;
+  --color-interactive-active: #1a1914;
+  --color-interactive-default: #25231d;
+  --color-interactive-disabled: #9ca3af;
+  --color-interactive-foreground: #f6f6f3;
+  --color-interactive-hover: #201e19;
+  --color-surface-default: #f6f6f3;
+  --color-surface-elevated: #ffffff;
+  --color-surface-overlay: #00000080;
+  --color-surface-sunken: #ebe8e6;
+  --color-text-link: #25231d;
+  --color-text-muted: #68615a;
+  --color-text-on-interactive: #f6f6f3;
+  --color-text-primary: #25231d;
+  --color-text-secondary: #68615a;
+  --font-mono: DM Mono, ui-monospace, monospace;
+  --font-sans: DM Sans, ui-sans-serif, system-ui, sans-serif;
+  --font-size-2xl: 1.75rem;
+  --font-size-3xl: 2.0625rem;
+  --font-size-4xl: 2.5rem;
+  --font-size-5xl: 3rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.1875rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-xl: 1.4375rem;
+  --font-size-xs: 0.6875rem;
+  --font-weight-body: 400;
+  --font-weight-bold: 700;
+  --font-weight-heading: 600;
+  --font-weight-label: 500;
+  --radius-full: 9999px;
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+  --radius-xl: 12px;
+  --radius-xs: 4px;
+  --shadow-default: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  --shadow-elevated: 0 4px 6px -1px #0000001a, 0 2px 4px -2px #0000001a;
+  --shadow-overlay: 0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a;
+  --shadow-subtle: 0 1px 2px 0 #0000000d;
+  --space-component-gap: 0.5rem;
+  --space-component-padding-x: 0.75rem;
+  --space-component-padding-y: 0.5rem;
+  --space-page-margin: 1.5rem;
+  --space-section-gap: 1.5rem;
+  --text-body-leading: 1.5rem;
+  --text-body-size: 1rem;
+  --text-body-weight: {sapira.typography.fontWeight.body};
+  --text-display-1-leading: 3.75rem;
+  --text-display-1-size: 3rem;
+  --text-display-1-weight: {sapira.typography.fontWeight.body};
+  --text-display-2-leading: 3.25rem;
+  --text-display-2-size: 2.5rem;
+  --text-display-2-weight: {sapira.typography.fontWeight.body};
+  --text-display-3-leading: 2.5rem;
+  --text-display-3-size: 2.0625rem;
+  --text-display-3-weight: {sapira.typography.fontWeight.body};
+  --text-heading-1-leading: 2.25rem;
+  --text-heading-1-size: 1.75rem;
+  --text-heading-1-weight: {sapira.typography.fontWeight.heading};
+  --text-heading-2-leading: 1.75rem;
+  --text-heading-2-size: 1.4375rem;
+  --text-heading-2-weight: {sapira.typography.fontWeight.heading};
+  --text-heading-3-leading: 1.5rem;
+  --text-heading-3-size: 1.1875rem;
+  --text-heading-3-weight: {sapira.typography.fontWeight.heading};
+  --text-heading-4-leading: 1.25rem;
+  --text-heading-4-size: 1rem;
+  --text-heading-4-weight: {sapira.typography.fontWeight.heading};
+  --text-heading-5-leading: 1rem;
+  --text-heading-5-size: 0.8125rem;
+  --text-heading-5-weight: {sapira.typography.fontWeight.heading};
+  --text-heading-6-leading: 1rem;
+  --text-heading-6-size: 0.6875rem;
+  --text-heading-6-weight: {sapira.typography.fontWeight.heading};
+  --text-label-leading: 1.5rem;
+  --text-label-size: 1rem;
+  --text-label-weight: {sapira.typography.fontWeight.label};
+  --text-supporting-leading: 1.25rem;
+  --text-supporting-size: 0.8125rem;
+  --text-supporting-weight: {sapira.typography.fontWeight.body};
+}
+</style>
+<style>
+/* Composicion token-based sobre la foundation. Sin tema paralelo, sin tokens --custom. */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--color-surface-default);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-body);
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-leading);
+  padding: var(--space-page-margin);
+}
+.wrap { display: grid; gap: var(--space-section-gap); }
+.pagehead { display: grid; gap: var(--space-component-gap); }
+.crumbs { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
+.crumbs a { color: var(--color-text-link); }
+h1 { font-size: var(--text-heading-1-size); line-height: var(--text-heading-1-leading); font-weight: var(--font-weight-heading); margin: 0; }
+.subtitle { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
+.window { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
+.fixture { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-y) var(--space-component-padding-x); border: 1px solid var(--color-feedback-warning); border-radius: var(--radius-md); background: var(--color-feedback-warning-bg); color: var(--color-feedback-warning); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); }
+.rule { border: 0; border-top: 1px solid var(--color-border-subtle); margin: 0; }
+.sec { display: grid; gap: var(--space-component-gap); }
+.sec-title { font-size: var(--text-heading-3-size); line-height: var(--text-heading-3-leading); font-weight: var(--font-weight-heading); margin: 0; }
+.sec-note { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
+.quiet { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
+.mono { font-family: var(--font-mono); }
+.chips { display: flex; flex-wrap: wrap; gap: var(--space-component-gap); align-items: center; }
+.chip { display: inline-flex; align-items: center; padding: 0 var(--space-component-padding-x); border: 1px solid var(--color-border-default); border-radius: var(--radius-full); background: var(--color-surface-default); color: var(--color-text-secondary); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); font-weight: var(--font-weight-label); white-space: nowrap; }
+.chip-pedido { background: var(--color-surface-elevated); border-color: var(--color-border-default); color: var(--color-text-primary); }
+.chip-trabajando { background: var(--color-feedback-info-bg); border-color: var(--color-feedback-info); color: var(--color-feedback-info); }
+.chip-entregado { background: var(--color-feedback-success-bg); border-color: var(--color-feedback-success); color: var(--color-feedback-success); }
+.chip-cancelado { background: var(--color-feedback-warning-bg); border-color: var(--color-feedback-warning); color: var(--color-feedback-warning); }
+.chip-fallo { background: var(--color-feedback-error-bg); border-color: var(--color-feedback-error); color: var(--color-feedback-error); }
+.chip-nodisponible { background: var(--color-surface-default); border-style: dashed; border-color: var(--color-border-default); color: var(--color-text-secondary); }
+.canvas { display: flex; flex-wrap: wrap; gap: var(--space-section-gap); align-items: flex-start; }
+.col { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-x); background: var(--color-surface-sunken); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); flex: 1 1 0; min-width: 0; }
+.col-head { display: grid; gap: var(--space-component-gap); padding-bottom: var(--space-component-padding-y); border-bottom: 1px solid var(--color-border-subtle); }
+.col-name { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; }
+.col-meta { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
+.card { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-y) var(--space-component-padding-x); background: var(--color-surface-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-subtle); }
+.card:focus-visible { outline: 2px solid var(--color-border-focus); }
+.card-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-component-gap); }
+.card-title { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; }
+.job { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
+.role { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); font-weight: var(--font-weight-label); color: var(--color-text-secondary); }
+.why { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
+.fields { display: grid; gap: var(--space-component-gap); margin: 0; padding-top: var(--space-component-padding-y); border-top: 1px solid var(--color-border-subtle); }
+.field { display: grid; gap: var(--space-component-gap); }
+.field dt { font-size: var(--text-supporting-size); font-weight: var(--font-weight-label); color: var(--color-text-muted); }
+.field dd { display: grid; gap: var(--space-component-gap); margin: 0; font-size: var(--text-supporting-size); color: var(--color-text-primary); }
+.cite { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
+.zone { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-x); background: var(--color-surface-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-subtle); }
+.zone-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-component-gap); padding-bottom: var(--space-component-padding-y); border-bottom: 1px solid var(--color-border-subtle); }
+.state-line { font-size: var(--text-heading-5-size); line-height: var(--text-heading-5-leading); font-weight: var(--font-weight-heading); margin: 0; }
+.state-body { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
+.panel { display: grid; gap: var(--space-component-gap); justify-items: start; padding: var(--space-section-gap); }
+.panel-title { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; }
+.alert { display: grid; gap: var(--space-component-gap); justify-items: start; padding: var(--space-component-padding-y) var(--space-component-padding-x); border: 1px solid var(--color-feedback-error); border-radius: var(--radius-md); background: var(--color-feedback-error-bg); }
+.alert-title { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; color: var(--color-feedback-error); }
+.alert-body { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
+.sk { display: flex; flex-wrap: wrap; gap: var(--space-component-gap); width: 100%; }
+.sk span { display: block; flex-basis: 0; height: var(--space-component-gap); border-radius: var(--radius-sm); background: var(--color-surface-sunken); }
+.sk .g3 { flex-grow: 3; }
+.sk .g2 { flex-grow: 2; }
+.sk .g1 { flex-grow: 1; }
+.btn { appearance: none; font-family: var(--font-sans); font-size: var(--text-supporting-size); font-weight: var(--font-weight-label); line-height: var(--text-supporting-leading); cursor: pointer; padding: var(--space-component-padding-y) var(--space-component-padding-x); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-surface-elevated); color: var(--color-text-primary); }
+.btn:hover { background: var(--color-surface-sunken); }
+.btn:focus-visible, .crumbs a:focus-visible { outline: 2px solid var(--color-border-focus); }
+table { width: 100%; border-collapse: collapse; }
+caption { text-align: left; padding: var(--space-component-padding-y) var(--space-component-padding-x); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); }
+th, td { text-align: left; vertical-align: top; padding: var(--space-component-padding-y) var(--space-component-padding-x); border-bottom: 1px solid var(--color-border-subtle); }
+th { font-size: var(--text-supporting-size); font-weight: var(--font-weight-bold); color: var(--color-text-muted); background: var(--color-surface-sunken); }
+tbody tr:last-child td { border-bottom: none; }
+code { font-family: var(--font-mono); font-size: var(--text-supporting-size); color: var(--color-text-secondary); }
+.foot { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <header class="pagehead">
+    <nav class="crumbs" aria-label="Migas de pan"><a href="#lienzo">Tower Control</a> &rsaquo; Pulse &rsaquo; Grafo (S1)</nav>
+    <h1>Grafo S1 &mdash; el lienzo de encargos</h1>
+    <p class="subtitle">Una tarjeta por encargo, agrupadas en columnas por <strong>rol</strong>. S1 dibuja tarjetas <strong>sin aristas</strong>: no hay ninguna l&iacute;nea entre encargos, porque las aristas padre&rarr;hijo se difieren a S2. Las columnas no son &laquo;profundidad&raquo;: agrupar por rol es decisi&oacute;n de alcance de S1, y la profundidad de dependencia se difiere tambi&eacute;n a S2.</p>
+    <p class="window">Ventana: 2026-09-17 00:00 &rarr; 2026-09-24 23:59 UTC &middot; canal sala-tower-grafo (<span class="mono">cfdc883f</span>) &middot; lectura acotada al owner (<span class="mono">#p</span> = owner, l&iacute;mite 500)</p>
+  </header>
+
+  <aside class="fixture" role="note">
+    <span><strong>FIXTURE ILUSTRATIVO.</strong> Las tarjetas de abajo son datos sint&eacute;ticos de demostraci&oacute;n: reproducen la forma de la proyecci&oacute;n de encargos (kinds 43001&ndash;43006), <strong>no actividad medida</strong> del piloto. Ninguna cifra de esta superficie es una medici&oacute;n.</span>
+  </aside>
+
+  <section class="sec" id="lienzo" aria-labelledby="lienzo-t">
+    <h2 class="sec-title" id="lienzo-t">El lienzo &mdash; una tarjeta por encargo, en columnas por rol</h2>
+    <p class="sec-note">Cinco estados legibles y ninguno m&aacute;s: <strong>pedido</strong> (43001), <strong>trabajando</strong> (43002 aceptado y 43003 en progreso), <strong>entregado</strong> (43004), <strong>cancelado</strong> (43005) y <strong>fall&oacute;</strong> (43006). <strong>Pedido es estado propio y no se funde con trabajando</strong>: un encargo pedido y no arrancado no est&aacute; trabajando. Ning&uacute;n estado se comunica solo por color: cada chip lleva su palabra, y el color solo lo refuerza.</p>
+    <div class="canvas">
+
+      <div class="col">
+        <div class="col-head">
+          <h3 class="col-name">arquitecto</h3>
+          <p class="col-meta">columna = rol, no profundidad</p>
+        </div>
+
+        <article class="card" tabindex="0" aria-labelledby="a1-t">
+          <div class="card-top">
+            <span class="chip chip-trabajando">trabajando</span>
+            <span class="role">rol: arquitecto</span>
+          </div>
+          <h4 class="card-title" id="a1-t">Taxonom&iacute;a de estados de la tarjeta</h4>
+          <p class="job">tower-grafo-s1-arquitecto &middot; &uacute;ltimo evento: 43003</p>
+          <p class="why">Por qu&eacute; est&aacute; aqu&iacute;: el encargo emiti&oacute; progreso (43003) y no ha emitido resultado ni error. Es un <strong>parafraseo del estado y su kind</strong>, no una medici&oacute;n de la superficie.</p>
+          <dl class="fields">
+            <div class="field">
+              <dt>Modelo</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">El modelo vive en el span de turno (gen_ai.request.model), que esta vista no lee. No se pinta ning&uacute;n nombre de modelo de memoria.</span></dd>
+            </div>
+            <div class="field">
+              <dt>Coste</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">La proyecci&oacute;n no lleva contabilidad (cost: null en los seis kinds). No se muestra ning&uacute;n importe, ni un cero, ni un total.</span></dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="card" tabindex="0" aria-labelledby="a2-t">
+          <div class="card-top">
+            <span class="chip chip-fallo">fall&oacute;</span>
+            <span class="role">rol: arquitecto</span>
+          </div>
+          <h4 class="card-title" id="a2-t">Frontera de datos del grafo</h4>
+          <p class="job">tower-grafo-frontera &middot; &uacute;ltimo evento: 43006</p>
+          <p class="why">Por qu&eacute; est&aacute; aqu&iacute;: el encargo cerr&oacute; con error (43006). Significa &laquo;no entreg&oacute;&raquo;, no &laquo;no se sabe&raquo;: el estado tiene productor y lleg&oacute;.</p>
+          <dl class="fields">
+            <div class="field">
+              <dt>Modelo</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">Misma raz&oacute;n que arriba: la fuente que el lienzo lee no lleva modelo.</span></dd>
+            </div>
+            <div class="field">
+              <dt>Coste</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">Sin contabilidad en la fuente. Prohibido el cero y prohibido cualquier total.</span></dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+
+      <div class="col">
+        <div class="col-head">
+          <h3 class="col-name">producto</h3>
+          <p class="col-meta">columna = rol, no profundidad</p>
+        </div>
+
+        <article class="card" tabindex="0" aria-labelledby="p1-t">
+          <div class="card-top">
+            <span class="chip chip-pedido">pedido</span>
+            <span class="role">rol: producto</span>
+          </div>
+          <h4 class="card-title" id="p1-t">Decisiones de valor de la slice</h4>
+          <p class="job">tower-grafo-s1-producto &middot; &uacute;ltimo evento: 43001</p>
+          <p class="why">Por qu&eacute; est&aacute; aqu&iacute;: el encargo fue pedido (43001) y nadie lo ha arrancado. <strong>No est&aacute; trabajando</strong> y no est&aacute; atascado: espera a que se le asigne.</p>
+          <dl class="fields">
+            <div class="field">
+              <dt>Modelo</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">Un encargo pedido no ha abierto turno, as&iacute; que no hay span del que leerlo.</span></dd>
+            </div>
+            <div class="field">
+              <dt>Coste</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">Sin contabilidad, y adem&aacute;s sin turno: no hay nada que sumar y no se suma nada.</span></dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="card" tabindex="0" aria-labelledby="p2-t">
+          <div class="card-top">
+            <span class="chip chip-entregado">entregado</span>
+            <span class="role">rol: producto</span>
+          </div>
+          <h4 class="card-title" id="p2-t">Inventario campo a campo de la tarjeta</h4>
+          <p class="job">tower-grafo-s1-campos &middot; &uacute;ltimo evento: 43004</p>
+          <p class="why">Por qu&eacute; est&aacute; aqu&iacute;: el encargo entreg&oacute; (43004). Ya no exige atenci&oacute;n; se retira de la cola de trabajo vivo sin que su estado desaparezca.</p>
+          <dl class="fields">
+            <div class="field">
+              <dt>Modelo</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">El estado terminal no trae modelo: la fuente no lo publica en ning&uacute;n caso.</span></dd>
+            </div>
+            <div class="field">
+              <dt>Coste</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">Entregar no produce coste legible. No se estima ni se infiere por diferencia de tokens.</span></dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+
+      <div class="col">
+        <div class="col-head">
+          <h3 class="col-name">analista</h3>
+          <p class="col-meta">columna = rol, no profundidad</p>
+        </div>
+
+        <article class="card" tabindex="0" aria-labelledby="n1-t">
+          <div class="card-top">
+            <span class="chip chip-cancelado">cancelado</span>
+            <span class="role">rol: analista</span>
+          </div>
+          <h4 class="card-title" id="n1-t">Censo de actividad por ventana</h4>
+          <p class="job">tower-grafo-s1-censo &middot; &uacute;ltimo evento: 43005</p>
+          <p class="why">Por qu&eacute; est&aacute; aqu&iacute;: el encargo se detuvo por decisi&oacute;n (43005). No es un fallo ni trabajo vivo; alguien decidi&oacute; pararlo.</p>
+          <dl class="fields">
+            <div class="field">
+              <dt>Modelo</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">No se lee de la fuente. No se deduce del rol.</span></dd>
+            </div>
+            <div class="field">
+              <dt>Coste</dt>
+              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">No se publica coste. Un total aqu&iacute; ser&iacute;a una cifra fabricada.</span></dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+
+      <div class="col">
+        <div class="col-head">
+          <h3 class="col-name">research</h3>
+          <p class="col-meta">columna = rol, no profundidad</p>
+        </div>
+
+        <p class="quiet">Este rol no tiene encargos en la ventana. <strong>No es un fallo de lectura</strong> y no es un cero: la fuente respondi&oacute; y no hab&iacute;a filas para este rol. La columna se queda sin tarjetas, no sin explicaci&oacute;n.</p>
+      </div>
+
+    </div>
+    <p class="quiet">Cada tarjeta es alcanzable por teclado (<span class="mono">tabindex=&quot;0&quot;</span>) y muestra anillo de foco al enfocarla. El orden de tabulaci&oacute;n recorre columna a columna y, dentro de cada una, de arriba abajo; no hay ninguna superficie de acci&oacute;n porque esta slice <strong>observa, no muta</strong>.</p>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="sec" aria-labelledby="vacio-t">
+    <h2 class="sec-title" id="vacio-t">Vac&iacute;o &mdash; la fuente respondi&oacute; y no hay encargos</h2>
+    <div class="zone">
+      <div class="zone-head">
+        <h3 class="state-line">VAC&Iacute;O &mdash; No hay ning&uacute;n encargo en la ventana 2026-09-17 &rarr; 2026-09-24</h3>
+        <span class="cite">EmptyState &middot; sin acci&oacute;n</span>
+      </div>
+      <div class="panel">
+        <p class="panel-title">No hay ning&uacute;n encargo en esta ventana</p>
+        <p class="state-body">Tower Control lee los eventos de encargo publicados al canal y respondi&oacute; que no hay filas en el periodo. Este vac&iacute;o <strong>es un dato</strong>: la lectura funcion&oacute;. Se deshace solo en cuanto un encargo emita su primer evento y se abra un canal de lectura nuevo despu&eacute;s.</p>
+        <p class="cite">Ventana nombrada: 2026-09-17 00:00 &rarr; 2026-09-24 23:59 UTC &middot; canal sala-tower-grafo (cfdc883f) &middot; fuente: proyecci&oacute;n de eventos de encargo del owner.</p>
+        <p class="quiet">Ning&uacute;n contador de cabecera: si no hay filas, no hay afirmaci&oacute;n sobre filas. Nunca un cero, nunca &laquo;cero encargos&raquo;. Las tres formas del silencio, para no confundirlas: <strong>sin encargos</strong> (esto) &middot; <strong>fuente ilegible</strong> (la rama de error, abajo) &middot; <strong>a&uacute;n cargando</strong> (la rama de carga, abajo).</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="carga-t">
+    <h2 class="sec-title" id="carga-t">Carga &mdash; hay una lectura en vuelo y nada previo que mostrar</h2>
+    <div class="zone">
+      <div class="zone-head">
+        <h3 class="state-line">CARGA &mdash; Leyendo los encargos publicados&hellip; (ventana 2026-09-17 &rarr; 2026-09-24): esqueleto de columnas y ninguna tarjeta parcial</h3>
+        <span class="cite">Skeleton &middot; cabeceras visibles</span>
+      </div>
+      <p class="state-body">Las columnas se dibujan con sus nombres y su forma; las tarjetas son esqueleto. <strong>Ninguna tarjeta lleva dato a medias</strong> &mdash; ni un gui&oacute;n, ni un chip provisional, ni un nombre sin estado. Prohibida cualquier cifra: un cero durante la carga se leer&iacute;a como &laquo;no hay encargos&raquo;.</p>
+      <div class="canvas">
+        <div class="col">
+          <div class="col-head">
+            <h3 class="col-name">arquitecto</h3>
+            <p class="col-meta">columna = rol, no profundidad</p>
+          </div>
+          <div class="card"><span class="sk"><span class="g3"></span><span class="g2"></span><span class="g1"></span></span></div>
+          <div class="card"><span class="sk"><span class="g2"></span><span class="g1"></span></span></div>
+        </div>
+        <div class="col">
+          <div class="col-head">
+            <h3 class="col-name">producto</h3>
+            <p class="col-meta">columna = rol, no profundidad</p>
+          </div>
+          <div class="card"><span class="sk"><span class="g2"></span><span class="g3"></span><span class="g1"></span></span></div>
+        </div>
+        <div class="col">
+          <div class="col-head">
+            <h3 class="col-name">analista</h3>
+            <p class="col-meta">columna = rol, no profundidad</p>
+          </div>
+          <div class="card"><span class="sk"><span class="g1"></span><span class="g2"></span></span></div>
+        </div>
+      </div>
+      <p class="quiet">Regla del armaz&oacute;n R1&ndash;R2: un refresco sobre datos existentes <strong>no</strong> vuelve a esta rama visible &mdash; las tarjetas no se desmontan, la posici&oacute;n de lectura no se pierde y el foco no salta al vac&iacute;o (<em>mutate in place</em>). El orden de las columnas es determinista entre lecturas para que un refresco no reordene el lienzo bajo el cursor.</p>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="error-t">
+    <h2 class="sec-title" id="error-t">Error &mdash; la fuente no se puede leer</h2>
+    <div class="zone">
+      <div class="zone-head">
+        <h3 class="state-line">ERROR &mdash; No se pudo leer el registro de encargos (c&oacute;digo adapter_unavailable): el fallo se dice como fallo y nunca se dibuja como vac&iacute;o</h3>
+        <span class="cite">Alert variant=&quot;error&quot; &middot; sin cifras</span>
+      </div>
+      <div class="panel">
+        <div class="alert">
+          <p class="alert-title">No se pudo leer el registro de encargos</p>
+          <p class="alert-body">El origen no respondi&oacute;. Esto <strong>no</strong> es un lienzo vac&iacute;o: no se sabe si hay encargos. El adaptador <strong>rechaza</strong>, jam&aacute;s resuelve a lista vac&iacute;a ante un fallo &mdash; si lo hiciera, una fuente ca&iacute;da se leer&iacute;a como &laquo;no pas&oacute; nada&raquo; y el operador perder&iacute;a la se&ntilde;al de que su ventana est&aacute; ciega.</p>
+          <p class="alert-body cite">adapter_unavailable</p>
+          <button type="button" class="btn">Reintentar lectura</button>
+        </div>
+        <p class="quiet">Sin cifras y sin instantes en toda la rama (R5): ninguna tarjeta, ning&uacute;n cero, ning&uacute;n conteo de cabecera, ninguna fecha. Un fallo no se pinta nunca como dato actual. Con lectura previa ya en pantalla la rama correcta no es esta: se conservan las tarjetas y se a&ntilde;ade encima un aviso fijo que dice <strong>cu&aacute;ndo</strong> se ley&oacute; y que lo de abajo es dato viejo.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="sec" aria-labelledby="fuera-t">
+    <h2 class="sec-title" id="fuera-t">Fuera &mdash; lo que S1 no dibuja, cada cosa con su motivo nombrado</h2>
+    <div class="zone">
+      <div class="panel">
+        <p class="panel-title">Aristas de cualquier tipo</p>
+        <p class="state-body">No hay ninguna l&iacute;nea entre tarjetas. La arista padre&rarr;hijo existe como hecho declarado (kind 43007) y su lectura ya est&aacute; mergeada (PR #7, lector <span class="mono">towerHandoffEdges.ts</span>); S1 no la dibuja por alcance &mdash; las aristas se difieren a S2. La arista trabajo&rarr;span necesita el tag <span class="mono">trace</span>, que el productor no emite; la arista trabajo&rarr;trabajo vive solo en la base local del piloto, que no es la fuente que esta vista lee; y la arista agente&harr;agente no tiene dato alguno. Dibujar cualquiera de las cuatro en S1 ser&iacute;a salirse del alcance declarado de la slice.</p>
+      </div>
+    </div>
+    <div class="zone">
+      <div class="panel">
+        <p class="panel-title">Celda de bloqueo &mdash; no se dibuja, ni llena ni a cero</p>
+        <p class="state-body">El &uacute;nico bloqueo mec&aacute;nico que existe hoy llega mal etiquetado: dos caminos de entrada (bloqueo de lanzamiento y bloqueo de delegaci&oacute;n) se traducen al mismo kind que &laquo;en progreso&raquo;, as&iacute; que un encargo esperando una dependencia <strong>llega al lienzo como trabajando</strong>. Y el plegado committed fabrica adem&aacute;s un &laquo;cero bloqueados, observado&raquo; para todo encargo no fallado: un cero presentado como medici&oacute;n. Esta superficie no dibuja ninguna de las dos cosas: no hay celda de bloqueo, no hay cifra de bloqueo y no hay la palabra &laquo;bloqueado&raquo; en ninguna tarjeta.</p>
+        <p class="quiet">Si en alg&uacute;n momento el lienzo necesita nombrar el bloqueo, lo har&aacute; como <strong>&laquo;sin se&ntilde;al&raquo;</strong> con texto propio y sin cifra, y nunca como un n&uacute;mero. La marca &laquo;sin se&ntilde;al&raquo; se dibuja con borde discontinuo y tono apagado precisamente para que no se lea como un dato medido.</p>
+      </div>
+    </div>
+    <div class="zone">
+      <div class="panel">
+        <p class="panel-title">Profundidad de dependencia y jerarqu&iacute;a padre&rarr;hijo</p>
+        <p class="state-body">La arista padre&rarr;hijo existe como hecho declarado (kind 43007) y su lectura ya est&aacute; mergeada (PR #7, lector <span class="mono">towerHandoffEdges.ts</span>); S1 <strong>no la dibuja por alcance</strong> &mdash; las aristas se difieren a S2. Por eso el lienzo <strong>no rotula ninguna columna como &laquo;profundidad&raquo;</strong> ni indenta nada para sugerir jerarqu&iacute;a: la agrupaci&oacute;n se llama por lo que es, rol. Una columna &laquo;profundidad&raquo; aqu&iacute; ser&iacute;a una jerarqu&iacute;a que S1 no dibuja, le&iacute;da como si existiera.</p>
+      </div>
+    </div>
+    <div class="zone">
+      <div class="panel">
+        <p class="panel-title">Modelo con valor real y coste con importe</p>
+        <p class="state-body">El modelo vive en el span de turno, que esta vista no lee; el coste es <span class="mono">null</span> en los seis kinds de la proyecci&oacute;n. Los dos campos existen en la tarjeta y los dos dicen <strong>&laquo;no disponible&raquo;</strong> con su raz&oacute;n. No se pinta ning&uacute;n nombre de modelo de memoria, ning&uacute;n importe, ning&uacute;n s&iacute;mbolo de moneda y ning&uacute;n total.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="sec" aria-labelledby="map-t">
+    <h2 class="sec-title" id="map-t">Tabla de mapeo: rol Sapira &rarr; token EXISTENTE de la foundation</h2>
+    <p class="sec-note">Cada color, fondo, tipograf&iacute;a, radio, sombra, relleno, margen y hueco de este fichero es un <span class="mono">var(--token)</span> del <span class="mono">foundation_block</span> de Sapira 0.13.1, insertado <strong>verbatim</strong>. La &uacute;ltima columna marca d&oacute;nde el match es <strong>inexacto</strong>: un rol de superficie que el conjunto de tokens no nombra y que se resuelve con el token m&aacute;s cercano, nunca con un token nuevo. <strong>L&iacute;mite declarado:</strong> los tokens de abajo son los que devuelve <span class="mono">context {operation:design}</span> (paquete 0.13.1). <strong>No he le&iacute;do <span class="mono">desktop/src</span></strong> para este fichero: esa ruta no existe en el &aacute;rbol que mi herramienta ve, as&iacute; que nombro cada token del paquete versionado y marco como inexacto todo punto donde no puedo afirmar que exista hoy un token equivalente en <span class="mono">desktop/src</span>.</p>
+    <table>
+      <caption>Mapeo de la superficie del lienzo a tokens existentes. Fuente: <span class="mono">foundation_block</span> devuelto por <span class="mono">context {operation:design}</span> (paquete 0.13.1). No se define ning&uacute;n token propio.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Rol en la superficie</th>
+          <th scope="col">Token usado</th>
+          <th scope="col">Valor</th>
+          <th scope="col">Exactitud del match</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Lienzo (fondo de p&aacute;gina)</td>
+          <td><span class="mono">--color-surface-default</span></td>
+          <td><span class="mono">#f6f6f3</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Columna del lienzo (fondo hundido)</td>
+          <td><span class="mono">--color-surface-sunken</span></td>
+          <td><span class="mono">#ebe8e6</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Tarjeta de encargo (superficie elevada)</td>
+          <td><span class="mono">--color-surface-elevated</span></td>
+          <td><span class="mono">#ffffff</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Borde de tarjeta y de columna</td>
+          <td><span class="mono">--color-border-default</span> / <span class="mono">--color-border-subtle</span></td>
+          <td><span class="mono">#d8d4cf</span> / <span class="mono">#26251e1a</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Foco de teclado (anillo)</td>
+          <td><span class="mono">--color-border-focus</span></td>
+          <td><span class="mono">#a93737</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Texto principal (t&iacute;tulo de tarjeta y de columna)</td>
+          <td><span class="mono">--color-text-primary</span></td>
+          <td><span class="mono">#25231d</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Texto secundario (raz&oacute;n, rol, notas)</td>
+          <td><span class="mono">--color-text-secondary</span></td>
+          <td><span class="mono">#68615a</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Texto apagado (citas de procedencia)</td>
+          <td><span class="mono">--color-text-muted</span></td>
+          <td><span class="mono">#68615a</span></td>
+          <td><strong>inexacto</strong>: apagado y secundario comparten valor en este tema; el rol de &laquo;apagado&raquo; no tiene token propio y se resuelve con el mismo color</td>
+        </tr>
+        <tr>
+          <td>Acento de marca (disponible, NO usado en el lienzo)</td>
+          <td><span class="mono">--color-brand</span></td>
+          <td><span class="mono">#c54444</span></td>
+          <td><strong>inexacto / declarado</strong>: se nombra por existir, pero <strong>no se usa</strong>. Emplearlo en chips de estado fundir&iacute;a marca con estado</td>
+        </tr>
+        <tr>
+          <td>Estado &laquo;trabajando&raquo; (43002 y 43003)</td>
+          <td><span class="mono">--color-feedback-info</span> / <span class="mono">--color-feedback-info-bg</span></td>
+          <td><span class="mono">#2563eb</span> / <span class="mono">#eff6ff</span></td>
+          <td><strong>inexacto</strong>: &laquo;trabajando&raquo; no es retroalimentaci&oacute;n informativa, es el estado vivo del encargo. No hay token de estado de ciclo de vida, as&iacute; que se toma el azul informativo como el m&aacute;s cercano y el <strong>texto del chip</strong> carga el significado</td>
+        </tr>
+        <tr>
+          <td>Estado &laquo;entregado&raquo; (43004)</td>
+          <td><span class="mono">--color-feedback-success</span> / <span class="mono">--color-feedback-success-bg</span></td>
+          <td><span class="mono">#16a34a</span> / <span class="mono">#f0fdf4</span></td>
+          <td>exacto en color; <strong>inexacto</strong> en sem&aacute;ntica (es feedback, no ciclo de vida) &rarr; el texto &laquo;entregado&raquo; es obligatorio</td>
+        </tr>
+        <tr>
+          <td>Estado &laquo;cancelado&raquo; (43005)</td>
+          <td><span class="mono">--color-feedback-warning</span> / <span class="mono">--color-feedback-warning-bg</span></td>
+          <td><span class="mono">#d97706</span> / <span class="mono">#fffbeb</span></td>
+          <td><strong>inexacto</strong>: cancelar no es una advertencia; se elige el &aacute;mbar para no confundirlo con fallo ni con &eacute;xito, y el texto lo distingue</td>
+        </tr>
+        <tr>
+          <td>Estado &laquo;fall&oacute;&raquo; (43006)</td>
+          <td><span class="mono">--color-feedback-error</span> / <span class="mono">--color-feedback-error-bg</span></td>
+          <td><span class="mono">#dc2626</span> / <span class="mono">#fef2f2</span></td>
+          <td>exacto en color; el texto &laquo;fall&oacute;&raquo; sigue siendo obligatorio</td>
+        </tr>
+        <tr>
+          <td>Estado &laquo;pedido&raquo; (43001)</td>
+          <td><span class="mono">--color-surface-elevated</span> / <span class="mono">--color-border-default</span> / <span class="mono">--color-text-primary</span></td>
+          <td><span class="mono">#ffffff</span> / <span class="mono">#d8d4cf</span> / <span class="mono">#25231d</span></td>
+          <td><strong>inexacto</strong>: &laquo;pedido&raquo; es un estado observado y necesita chip s&oacute;lido, no apagado; se compone con tokens neutros porque el conjunto no tiene un token &laquo;estado neutro&raquo;</td>
+        </tr>
+        <tr>
+          <td>&laquo;No disponible&raquo; (modelo y coste ausentes)</td>
+          <td><span class="mono">--color-border-default</span> (borde discontinuo) / <span class="mono">--color-text-secondary</span></td>
+          <td><span class="mono">#d8d4cf</span> / <span class="mono">#68615a</span></td>
+          <td><strong>inexacto</strong>: no hay token para &laquo;ausencia declarada&raquo;; se compone con tokens neutros y el borde discontinuo como se&ntilde;al. Sin cifra, por dise&ntilde;o</td>
+        </tr>
+        <tr>
+          <td>Banda de fixture ilustrativo</td>
+          <td><span class="mono">--color-feedback-warning</span> / <span class="mono">--color-feedback-warning-bg</span></td>
+          <td><span class="mono">#d97706</span> / <span class="mono">#fffbeb</span></td>
+          <td>exacto en color; <strong>inexacto</strong> en rol (es marca de procedencia, no aviso de sistema)</td>
+        </tr>
+        <tr>
+          <td>Rama de error</td>
+          <td><span class="mono">--color-feedback-error</span> / <span class="mono">--color-feedback-error-bg</span></td>
+          <td><span class="mono">#dc2626</span> / <span class="mono">#fef2f2</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Tipograf&iacute;a base, de t&iacute;tulo y monoespaciada</td>
+          <td><span class="mono">--font-sans</span> / <span class="mono">--font-weight-heading</span> / <span class="mono">--font-mono</span></td>
+          <td><span class="mono">DM Sans&hellip;</span> / <span class="mono">600</span> / <span class="mono">DM Mono&hellip;</span></td>
+          <td>exacto en token; <strong>inexacto en render</strong>: el dialecto del gate no admite recursos externos, as&iacute; que DM Sans <strong>no se carga</strong> y cae a la fuente del sistema</td>
+        </tr>
+        <tr>
+          <td>Escala tipogr&aacute;fica (cuerpo, t&iacute;tulo de secci&oacute;n, t&iacute;tulo de tarjeta, chip)</td>
+          <td><span class="mono">--text-body-size</span> / <span class="mono">--text-heading-1-size</span> / <span class="mono">--text-heading-3-size</span> / <span class="mono">--text-heading-4-size</span> / <span class="mono">--text-heading-5-size</span> / <span class="mono">--text-supporting-size</span></td>
+          <td><span class="mono">1rem</span> / <span class="mono">1.75rem</span> / <span class="mono">1.1875rem</span> / <span class="mono">1rem</span> / <span class="mono">0.8125rem</span> / <span class="mono">0.8125rem</span></td>
+          <td><strong>inexacto en un punto</strong>: los pasos de t&iacute;tulo 4 y cuerpo miden lo mismo (<span class="mono">1rem</span>), as&iacute; que la jerarqu&iacute;a del t&iacute;tulo de tarjeta se apoya en el peso, no en el tama&ntilde;o</td>
+        </tr>
+        <tr>
+          <td>Interlineado</td>
+          <td><span class="mono">--text-body-leading</span> / <span class="mono">--text-supporting-leading</span> / <span class="mono">--text-heading-1-leading</span> / <span class="mono">--text-heading-3-leading</span> / <span class="mono">--text-heading-4-leading</span> / <span class="mono">--text-heading-5-leading</span></td>
+          <td><span class="mono">1.5rem</span> / <span class="mono">1.25rem</span> / <span class="mono">2.25rem</span> / <span class="mono">1.5rem</span> / <span class="mono">1.25rem</span> / <span class="mono">1rem</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Radio de tarjeta y de columna</td>
+          <td><span class="mono">--radius-lg</span></td>
+          <td><span class="mono">8px</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Radio de chip</td>
+          <td><span class="mono">--radius-full</span></td>
+          <td><span class="mono">9999px</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Sombra de tarjeta y de zona de estado</td>
+          <td><span class="mono">--shadow-subtle</span></td>
+          <td><span class="mono">0 1px 2px 0 #0000000d</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Hueco entre columnas y entre bloques del lienzo</td>
+          <td><span class="mono">--space-section-gap</span></td>
+          <td><span class="mono">1.5rem</span></td>
+          <td><strong>inexacto</strong>: es el mismo hueco para dos escalas distintas, porque la foundation no tiene un paso intermedio</td>
+        </tr>
+        <tr>
+          <td>Hueco interno de tarjeta y entre campos</td>
+          <td><span class="mono">--space-component-gap</span></td>
+          <td><span class="mono">0.5rem</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Relleno de tarjeta y de chip</td>
+          <td><span class="mono">--space-component-padding-y</span> / <span class="mono">--space-component-padding-x</span></td>
+          <td><span class="mono">0.5rem</span> / <span class="mono">0.75rem</span></td>
+          <td>exacto</td>
+        </tr>
+        <tr>
+          <td>Margen de p&aacute;gina</td>
+          <td><span class="mono">--space-page-margin</span></td>
+          <td><span class="mono">1.5rem</span></td>
+          <td>exacto</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="quiet">Los pasos de la escala tipogr&aacute;fica que la foundation define y este fichero <strong>no</strong> usa (display 1&ndash;3, t&iacute;tulo 2 y 6, etiqueta) se declaran no usados: el lienzo es una superficie operativa, no una p&aacute;gina de presentaci&oacute;n. Los literales que s&iacute; aparecen son los permitidos: <span class="mono">font-size</span> en rem, anchos de borde en px, el valor cero, <span class="mono">auto</span> y mec&aacute;nica de tabla (<span class="mono">border-collapse</span>).</p>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="sec" aria-labelledby="rat-t">
+    <h2 class="sec-title" id="rat-t">Rationale en prosa</h2>
+    <p class="sec-note"><strong>Qui&eacute;n, cu&aacute;ndo y para qu&eacute;.</strong> El usuario es una sola persona: el director de ingenieros que supervisa diez agentes y decide d&oacute;nde poner la pr&oacute;xima hora. La tarea es nombrar, de un vistazo y sin abrir el canal de Buzz, en qu&eacute; estado est&aacute; cada encargo de su ventana &mdash; y distinguir <strong>pedido</strong> de <strong>trabajando</strong>, porque una cosa es trabajo vivo y la otra es trabajo esperando asignaci&oacute;n. El contexto es una pantalla de escritorio le&iacute;da en sesi&oacute;n de supervisi&oacute;n, no un panel de pared.</p>
+    <p class="sec-note"><strong>Por qu&eacute; columnas y por qu&eacute; <em>estas</em> columnas.</strong> El encargo ped&iacute;a columnas. La agrupaci&oacute;n por profundidad de dependencia no es construible <strong>en S1</strong>: la arista padre&rarr;hijo existe (kind 43007, lectura mergeada en PR #7, lector <span class="mono">towerHandoffEdges.ts</span>), pero S1 la difiere <strong>por alcance</strong> &mdash; las aristas son de S2. Agrupar por rol s&iacute; es sostenible &mdash; el rol viaja en cada evento &mdash; y adem&aacute;s responde a la pregunta operativa real, que es a qui&eacute;n se escala. Cada columna se rotula con el rol que de verdad la agrupa (<span class="mono">columna = rol, no profundidad</span>) y con la salvedad conocida: el mismo agente puede aparecer con dos cadenas de rol y entonces se parte en dos columnas; el lienzo no lo esconde ni lo funde en silencio.</p>
+    <p class="sec-note"><strong>Jerarqu&iacute;a.</strong> Lo primero que se lee es el estado, porque es la decisi&oacute;n: el chip va arriba a la izquierda de cada tarjeta, con su palabra, y el color solo lo refuerza &mdash; ning&uacute;n estado se comunica solo por color, que es regla dura. Despu&eacute;s el nombre del encargo, sujeto de cualquier intervenci&oacute;n. Despu&eacute;s la raz&oacute;n del estado, en texto y etiquetada como parafraseo. Y al final, en una zona separada por una l&iacute;nea, los dos campos que hoy no se pueden afirmar: modelo y coste, los dos con &laquo;no disponible&raquo; y con su motivo. La separaci&oacute;n es deliberada: lo que no se sabe no compite en peso visual con lo que s&iacute; se sabe y, sin embargo, no desaparece, porque un campo ausente sin explicaci&oacute;n es indistinguible de un fallo de la pantalla.</p>
+    <p class="sec-note"><strong>Vac&iacute;o, carga y error.</strong> Cada uno tiene su texto propio, visible y distinto, y ninguno se puede leer como otro. La carga dice que est&aacute; leyendo y proh&iacute;be cualquier cifra mientras lee; el vac&iacute;o dice que la fuente respondi&oacute; y no hab&iacute;a filas, y nombra la ventana en vez de mostrar un cero; el error dice que no se pudo leer, con su c&oacute;digo, y proh&iacute;be toda cifra y toda fecha para que no se lea como un dato actual. La raz&oacute;n es que el peor resultado no es una pantalla sin datos: es una pantalla sin datos que no dice cu&aacute;l de las tres cosas est&aacute; pasando. Hay adem&aacute;s un vac&iacute;o <strong>dentro</strong> del lienzo con datos: una columna de rol sin tarjetas dice que no hab&iacute;a filas para ese rol, en vez de quedarse muda.</p>
+    <p class="sec-note"><strong>Accesibilidad y teclado.</strong> Cada tarjeta es enfocable (<span class="mono">tabindex=&quot;0&quot;</span>) y muestra anillo de foco, de modo que la informaci&oacute;n no queda solo al alcance del rat&oacute;n. El orden de tabulaci&oacute;n es el de lectura: columna a columna, de arriba abajo. El error no roba el foco al aparecer: se anuncia y el operador decide si reintenta. La rama de vac&iacute;o no se anuncia como alerta, porque no es un error. Y en esta slice no hay superficie de acci&oacute;n salvo el reintento del error: el lienzo observa, no muta, y un bot&oacute;n sin efecto estar&iacute;a prohibido por la regla de la casa.</p>
+    <p class="sec-note"><strong>Lo que este prototipo no prueba.</strong> No est&aacute; renderizado con captura, ni medido el contraste con herramienta, ni ejercitado el teclado: lo anterior es especificaci&oacute;n escrita, no observaci&oacute;n. La fuente real no se ha consultado: las tarjetas son fixture ilustrativo y as&iacute; se declara en el cuerpo renderizado. El responsive no se ha probado a varios anchos, aunque el lienzo usa columnas flexibles que refluyen en vez de desbordar. Y la tipograf&iacute;a cae a la fuente del sistema porque no se carga DM Sans. Quien acepte esto debe abrirlo en un navegador y comprobarlo.</p>
+  </section>
+
+  <p class="foot">Prototipo autocontenido &middot; <span class="mono">foundation_block</span> de Sapira 0.13.1 verbatim &middot; sin emoji, sin SVG inline, sin estilos ni scripts externos, sin tokens propios, sin <span class="mono">!important</span>. Artefacto: <span class="mono">design/tower-grafo-s1-lienzo.html</span>. El piloto solo valida HTML autocontenido: la build React sobre <span class="mono">@sapira/ui</span> es del coder, y este fichero <strong>no reclama</strong> conformidad con el Design System por omisi&oacute;n.</p>
+</main>
+</body>
+</html>
