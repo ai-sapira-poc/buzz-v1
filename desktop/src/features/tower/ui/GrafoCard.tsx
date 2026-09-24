@@ -16,15 +16,21 @@ import { formatRecency, formatTokens } from "./portfolioFormat";
  * recorded wait if one was published, the last readable instant, and the model
  * and spend. The last two have no producer on this read, so the card prints
  * "Not available" for them; it never prints `$0` and never sums a total. One
- * reported state has no producer either, and says so: see
- * {@link STATES_WITHOUT_PRODUCER}.
+ * admitted state has no producer either, and the card does not draw it as a
+ * state at all — see {@link stateLabel}.
  *
  * The card draws no edge: S1 has no edge reader mounted on this surface, and a
  * connector invented here would be a claim the data does not make.
  */
 
-const WORK_STATE_LABEL: Record<WorkState, string> = {
-  requested: "Requested",
+/**
+ * The four states S1 draws: each one has a caller emitting its kind today
+ * (taxonomy §2). The fifth state the fold admits, `requested`, is not one of
+ * them — see {@link stateLabel}.
+ */
+type DrawnWorkState = Exclude<WorkState, "requested">;
+
+const WORK_STATE_LABEL: Record<DrawnWorkState, string> = {
   running: "Running",
   done: "Done",
   failed: "Failed",
@@ -32,34 +38,33 @@ const WORK_STATE_LABEL: Record<WorkState, string> = {
 };
 
 /**
- * The one legible state with no caller emitting it today: the fold admits
- * `requested`, but nothing publishes the kind that folds to it (taxonomy §2),
- * so on real data nobody produces this state — only a fixture can seed it, and
- * a fixture is not evidence of a producer. The card therefore refuses to
- * present it as a state someone measured: it carries the mark below, in words,
- * with no figure. Empty this set the day a producer exists.
- */
-const STATES_WITHOUT_PRODUCER = new Set<WorkState>(["requested"]);
-
-/**
  * The chip's text. `work: null` is "nothing was said", which is not the same as
- * the mark: a state nobody emitted still needs naming, but as unobserved.
+ * a state nobody produced: the absence still needs naming, in its own words and
+ * without borrowing the vocabulary of a state someone measured.
+ *
+ * `requested` is the one state outside that vocabulary. The fold maps its kind
+ * to it (`towerJobFold.ts`), but no caller publishes that kind (taxonomy §2),
+ * so on real data nobody produces it — only a fixture can seed it, and a
+ * fixture is not evidence of a producer. Printing "Requested" would present an
+ * unobserved state as a measured one, and fusing it with `running` would be
+ * worse, so the line is named as the absence it is: its own text, no figure,
+ * never a state label (taxonomy §9). The label goes back the day a caller of
+ * `created` exists — the fold itself is not touched, so that day the state
+ * arrives here already folded.
  */
 function stateLabel(work: PortfolioLine["work"]): string {
   if (work === null) return "No run reported";
-  const label = WORK_STATE_LABEL[work.state];
-  return STATES_WITHOUT_PRODUCER.has(work.state)
-    ? `${label} · no producer today`
-    : label;
+  if (work.state === "requested") return "No signal";
+  return WORK_STATE_LABEL[work.state];
 }
 
 /**
  * The left edge colour is the state the producer reported, or the neutral
  * border when no state was reported at all — `work: null` is "nothing was
- * said", which must not borrow the colour of a state nobody observed.
+ * said", and a state outside the drawn vocabulary is a state nobody produced,
+ * so neither borrows the colour of a state someone observed.
  */
-const STATE_EDGE: Record<WorkState, string> = {
-  requested: "border-l-sky-500/70",
+const STATE_EDGE: Record<DrawnWorkState, string> = {
   running: "border-l-emerald-500/70",
   done: "border-l-border",
   failed: "border-l-destructive/70",
@@ -105,7 +110,9 @@ export const GrafoCard = React.forwardRef<HTMLLIElement, GrafoCardProps>(
       <li
         className={cn(
           "flex min-w-0 flex-col gap-2 rounded-xl border border-l-4 border-border/70 bg-card/60 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          work === null ? "border-l-border" : STATE_EDGE[work.state],
+          work === null || work.state === "requested"
+            ? "border-l-border"
+            : STATE_EDGE[work.state],
           className,
         )}
         data-testid="tower-node"

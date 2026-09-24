@@ -25,7 +25,7 @@ import { installMockBridge } from "../helpers/bridge";
  * the mock bridge, and a fixture is evidence of nothing: in particular the
  * `requested` line is seeded because the fold admits that state, not because
  * anyone emits 43001 today — no caller passes `"created"` (taxonomy §2). The
- * card is required to say so out loud, and this spec asserts it does.
+ * card is required not to draw it as a state, and this spec asserts it does not.
  *
  * Each case boots the app once, so cases are merged where they share a boot:
  * the app shell's own gate (`community.isReady`) is the slowest and least
@@ -226,20 +226,24 @@ test.describe("tower grafo s1 — cards, no edges, grouped by role", () => {
     await expect(page.getByTestId("tower-node")).toContainText([
       "Running",
       "Running",
-      "Requested · no producer today",
+      "No signal",
       "No run reported",
     ]);
 
     // `requested` (43001) is the one legible state with no caller emitting it
-    // today, so its chip may not read as a measured state: it carries the mark,
-    // in words, with no figure. Scoped to the card so the assertion does not
-    // depend on card order.
+    // today, so S1 does not draw it: its chip names the absence instead of the
+    // state, in words, with no figure. Scoped to the card so the assertion does
+    // not depend on card order.
     const requestedCard = page
       .getByTestId("tower-node")
       .filter({ hasText: "npl-mp" });
     await expect(requestedCard.getByTestId("tower-node-state")).toHaveText(
-      "Requested · no producer today",
+      "No signal",
     );
+    // The state's own label is exactly what must not render, and the card does
+    // not borrow a produced state's colour either.
+    await expect(requestedCard).not.toContainText("Requested");
+    await expect(requestedCard).not.toHaveClass(/border-l-sky-500/);
 
     // The grouping is named for what it is, and says where depth will come from
     // — a column is a role, not a level.

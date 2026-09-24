@@ -106,12 +106,14 @@ test("real agent work renders as one card per job, grouped by role", async () =>
   assert.doesNotMatch(html, /tower-empty-state/);
   assert.doesNotMatch(html, /tower-error-state/);
   assert.match(html, /Running/);
-  assert.match(html, /Requested/);
-  // `requested` (43001) has no caller emitting it today, so the chip may not
-  // read as a measured state: it carries the mark, in words, with no figure.
-  // `>Requested<` is the unmarked chip — reverting the mark turns this red.
-  assert.match(html, /Requested · no producer today/);
-  assert.doesNotMatch(html, />Requested</);
+  // `requested` (43001) has no caller emitting it today, so S1 does not draw it
+  // as a state: the seeded line is a fixture, not a producer, and its chip
+  // names the absence instead (taxonomy §9). `Requested` is exactly what must
+  // not render — reverting the removal turns this red.
+  assert.doesNotMatch(html, /Requested/);
+  assert.match(html, /data-testid="tower-node-state">No signal</);
+  // Nor does an unproduced state borrow a produced state's colour.
+  assert.doesNotMatch(html, /border-l-sky-500/);
   // The producer's own line rides the card; nothing is invented for the rest.
   assert.match(html, /drawing cards/);
 });
