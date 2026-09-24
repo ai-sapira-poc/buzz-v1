@@ -43,6 +43,14 @@ lo devuelve; `git status` no marca ese fichero).
 **No ejecuté el piloto** ni publiqué ningún evento contra un relay: no vi ninguna
 de estas transiciones en vivo.
 
+**Añadido en la ronda de cierre: lecturas en vivo.** La frase anterior valía para la
+primera versión. Hay ahora un tercer tipo de evidencia, marcada como **observado en
+vivo**: lecturas del relay desplegado
+(`wss://blockbuzzmain-production-6923.up.railway.app`) con
+`buzz messages get --kinds … --limit 200`, **sin publicar ningún evento**. Sostienen
+§4 (los 27 eventos `43008`) y §7 (admisión viva de `43002`–`43006` y `43008`). Todo lo
+demás sigue siendo código en disco en `ab63b0129`.
+
 **Corrección de procedencia (defecto señalado por el revisor, arreglado aquí).**
 En la primera versión leí `experiments/buzz-autonomy/operator_updates.py` del
 **árbol de trabajo**, que entonces divergía de `main`: el diff no tocaba
@@ -76,7 +84,7 @@ relativa a `experiments/buzz-autonomy/` es `telemetry.py`, que no existe (falla
 
 | # | Estado de tarjeta (`WorkState`) | Kind | Constante | Plegado | Mapeo `state → kind` (`JOB_EVENT_STATE`) | Semántica |
 |---|---|---|---|---|---|---|
-| 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:203`) | pedido, sin arrancar |
+| 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:203`) | pedido, sin arrancar — **sin productor observado en vivo** (2026-09-24) |
 | 2 | `running` (aceptado) | 43002 | `kinds.ts:27` | `towerJobFold.ts:34` | `started` (`operator_updates.py:204`) | aceptado |
 | 3 | `running` (progreso) | 43003 | `kinds.ts:28` | `towerJobFold.ts:35` | `running` (`operator_updates.py:205`) **y `blocked` (`:209`)** | trabajando / **contaminado** |
 | 4 | `done` | 43004 | `kinds.ts:29` | `towerJobFold.ts:36` | `done` (`operator_updates.py:206`) | entregado |
@@ -102,13 +110,23 @@ llamadores reales en el piloto (`publish_update(` / `_publish_lifecycle(` en
 | `cancelled` (43005) | Sí | `launch_tower.py:297`, `:301`, `:396`; `supervisor.py:225`; `worker.py:207` |
 | `failed` (43006) | Sí | `launch_tower.py:297`, `:396`; `supervisor.py:225`; `worker.py:171`, `:207` |
 
-**Consecuencia, y decisión que no tomo yo.** Por la regla de esta taxonomía un
-estado sin productor se declara «sin señal». `requested` **no tiene ningún
-llamador que lo emita hoy**: con datos reales el operador no verá esa etiqueta.
-El código la pinta porque el pliegue la mapea (`towerJobFold.ts:33`) y el fixture
-del spec la siembra — un fixture legítimo, no evidencia de productor. Elección
-del `@Maestro`: **(a)** dejar el rótulo listo (aparece solo el día que exista
-productor) o **(b)** sacarlo de S1 (una línea del seed).
+**Consecuencia, y decisión del maestro (2026-09-24).** Por la regla de esta
+taxonomía un estado sin productor se declara «sin señal». `requested` **no tiene
+ningún llamador que lo emita hoy**: con datos reales el operador no verá esa
+etiqueta. El código la pinta porque el pliegue la mapea (`towerJobFold.ts:33`) y el
+fixture del spec la siembra — un fixture legítimo, no evidencia de productor.
+
+La fila **se queda** (opción (a)): sacarla exigiría escribir código nuevo para
+suprimir un estado que el pliegue de `main` ya entrega, y (a) es la única robusta al
+error — el día que se conecte un llamador `created`, la tarjeta se enciende sola. Una
+ausencia inocua se declara; no se amputa. Frase de contrato, **literal**:
+
+> `requested`: estado definido y plegado, sin productor observado en vivo a
+> 2026-09-24; se muestra si aparece, nunca como cifra cero.
+
+La distinción con `blocked` (§3) se mantiene, y es la que importa: `blocked` no se
+dibuja porque **llega** contaminado (el alias `blocked→progress` lo convierte en
+`running`); `requested` no se ejerce porque **no llega**.
 
 **Cadena de producción completa:**
 
@@ -195,6 +213,21 @@ proyección; un estado adyacente sin superficie obliga a decidir su vacío y su 
 de que exista un encargo que los pida. Este documento deja de tener esa pregunta abierta.
 No confundirlo con la celda de bloqueo: son cosas distintas.
 
+**Requisito de entrada: cumplido el 2026-09-23.** La condición era que su productor
+emitiera en vivo al menos una vez, y emitió. Lectura propia del relay
+`wss://blockbuzzmain-production-6923.up.railway.app`:
+
+```
+buzz messages get --channel 55c3438a-e7e8-4d5c-acd9-6e066a8f178d --kinds 43008 --limit 200
+→ 27 objetos · 2026-09-23T16:41:26Z → 2026-09-24T02:00:04Z (9,3 h)
+  job=tower-coder · reason=ladder_exhausted · un solo firmante
+```
+
+Reproducido de forma independiente por el maestro (misma cifra, `truncated:false`).
+**Esto no mete `43008` en S1**: la decisión de diferirlo sigue en pie y es reversible.
+Lo que cambia es que el requisito de entrada de la slice siguiente ya no está pendiente,
+no que la slice empiece.
+
 ---
 
 ## 5. Ausencias de **campo** (no de estado)
@@ -232,11 +265,30 @@ No confundirlo con la celda de bloqueo: son cosas distintas.
 
 ## 7. Lo que no se puede saber / no verificado
 
-- **No ejecuté el piloto ni publiqué eventos contra un relay.** Todo es código en
-  disco en HEAD `ab63b0129`.
-- **No verifiqué que el relay desplegado admita 43001–43008**; solo que HEAD lo
-  admite. Un relay viejo rechazaría la publicación (leído de informes previos, no
-  reproducido).
+- **No ejecuté el piloto y no publiqué nada contra un relay** (solo lecturas). El
+  código citado es código en disco en HEAD `ab63b0129`; lo observado en vivo va marcado
+  como tal, con su comando.
+- **Admisión del relay: qué está verificado y qué no.**
+  - **Por código (HEAD `ab63b0129`):** las ocho kinds caen en la misma alternativa del
+    `match` de scope — `crates/buzz-relay/src/handlers/ingest.rs:554-561`, de
+    `KIND_JOB_REQUEST` a `KIND_JOB_WAITING` → `Scope::MessagesWrite`; cualquier otra
+    kind termina en `Err("restricted: unknown event kind")` (`:562`). Hasta
+    `90bdd0c55` (2026-09-17) ninguna de ellas tenía scope asignado y **toda** escritura
+    se rechazaba: el protocolo tenía consumidor y no tenía puerta de entrada.
+  - **Observado en vivo:** `43008` está admitido — 27 eventos almacenados y releídos en
+    `tower-control` (ventana de 9,3 h, §4). `43002`–`43006` también: 98 eventos en
+    `sala-tower-grafo` (`43002`×26, `43003`×52, `43004`×11, `43005`×1, `43006`×8).
+  - **Inferido, no publicado:** la alternativa es un bloque contiguo que creció en tres
+    commits — `90bdd0c55` (`43001`–`43006`), `aa1fc86c4` (`43007`), `7a6df79d5`
+    (`43008`) — y `7a6df79d5` **desciende** de los otros dos (`git merge-base
+    --is-ancestor`, `true` en ambos casos). Luego un relay desplegado que admite
+    `43008` lleva los tres commits y admite también `43001` y `43007`. Es una
+    inferencia sobre el binario desplegado a partir del historial del repositorio,
+    **no** una publicación.
+  - **Lo que sigue sin verificarse es la emisión, no la admisión:** nadie ha publicado
+    `43001` ni `43007` (0 eventos en `sala-tower-grafo` y en `tower-control`; `[]` con
+    `--kinds 43007`), y `created` no tiene llamador. Un cero de emisión no es prueba de
+    rechazo.
 - **El tag `trace` sigue sin emitirse** (inferido de la lectura):
   `publish_job_event` construye los args sin `--trace` (`operator_updates.py:230-232`)
   y `publish_update` no lo pasa (`:422`), aunque el CLI lo declara (`lib.rs:806-808`) y
@@ -254,13 +306,13 @@ dato: `43007` está mergeada, PR #7 → `e2319442d`), **no dibuja bloqueo ni pro
 y declara **modelo y coste «no disponible»** (nunca `$0`, ningún total).
 
 El juego de cinco es el que el **pliegue admite**; de ellos, **`requested` no tiene
-llamador productor hoy** (§2), así que verlo en pantalla con datos reales depende de
-la decisión del maestro entre dejarlo listo (a) o sacarlo de S1 (b).
+llamador productor hoy** (§2). Decisión del maestro (2026-09-24): **(a) se queda**, con
+la frase de contrato de §2 — se muestra si aparece, nunca como cifra cero.
 
 Revisar esta taxonomía si: **(i)** se añade una kind o un tag de bloqueo;
 **(ii)** se corrige el alias `blocked→progress` (recordando los **dos** caminos);
-**(iii)** la slice siguiente integra `43008` — requisito de entrada: que su productor
-haya emitido al menos una vez en vivo.
+**(iii)** la slice siguiente integra `43008` — requisito de entrada **cumplido el
+2026-09-23** (§4); `43008` sigue fuera de S1.
 
 ---
 
@@ -275,17 +327,17 @@ haya emitido al menos una vez en vivo.
   ninguna superficie.
 - **A @revisor:** que la superficie renderizada no contenga «blocked», ni un `0`
   de bloqueo, ni «profundidad», ni un nombre de modelo.
-- **Decisión abierta (maestro):** `requested` (43001), fila 1 de §2, **no tiene
-  llamador productor** — (a) dejar el rótulo o (b) sacarlo de S1 (una línea del
-  seed del spec). No la toma el arquitecto. La rendija del adaptador ya está
-  cerrada por el coder (`a739cd06f`).
+- **Decisión cerrada (maestro, 2026-09-24): (a) se queda.** `requested` (43001), fila
+  1 de §2, **no tiene llamador productor**: se deja el rótulo, con la frase de contrato
+  de §2. La rendija del adaptador ya está cerrada por el coder (`a739cd06f`).
 - **Decisión cerrada (maestro):** `43008` (reposo) **no entra en S1**; va a la slice
-  siguiente con el requisito de que su productor haya emitido en vivo. S1 no dibuja
-  bloqueo: se declara «sin señal», sin cifra.
+  siguiente, cuyo requisito de entrada —que su productor haya emitido en vivo— quedó
+  **cumplido el 2026-09-23** (§4). S1 no dibuja bloqueo: se declara «sin señal», sin
+  cifra.
 
-**Límite de este documento:** sin ejecución del piloto, sin publicación contra
-relay, sin trazas en vivo. Cada afirmación es código en disco en HEAD
-`ab63b0129` o una inferencia marcada como tal.
+**Límite de este documento:** sin ejecución del piloto y sin ninguna publicación
+contra relay. Cada afirmación es código en disco en HEAD `ab63b0129`, una lectura en
+vivo con su comando (§1), o una inferencia marcada como tal.
 
 ---
 
