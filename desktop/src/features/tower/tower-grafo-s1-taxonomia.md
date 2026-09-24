@@ -71,7 +71,11 @@ tres citas abreviadas de §2 (`:205`, `:207`, `:208`) apuntaban, tal como estaba
 escritas, a líneas inexistentes de `towerJobFold.ts` (162 líneas) y ahora llevan el
 nombre del fichero; y el llamador de `publish_delegation` está en `capabilities.py` de
 la raíz del piloto, no en `control_plane/`. Las rutas del piloto son relativas a
-`experiments/buzz-autonomy/`.
+`experiments/buzz-autonomy/`, con `launch_tower.py` y `pursue.py` dentro de su
+`control_plane/`; las de escritorio citadas en forma corta (`kinds.ts`,
+`towerJobFold.ts`, `towerBuzzSource.ts`) son relativas a `desktop/src/shared/`. Con
+esa base, toda cita de §2 y §4 resuelve con `git show main:<fichero> | sed -n
+'<línea>p'`.
 
 **Tercer defecto de la misma clase, corregido en la ronda de cierre.** La fila de
 `modelo` de §5 citaba `telemetry.py` sin directorio; bajo la regla anterior, la ruta
@@ -79,6 +83,19 @@ relativa a `experiments/buzz-autonomy/` es `telemetry.py`, que no existe (falla
 `git cat-file -e ab63b0129:experiments/buzz-autonomy/telemetry.py`). El fichero es
 `control_plane/telemetry.py`, y su línea 135 es la que sostiene la afirmación
 (`span.set_attribute("gen_ai.request.model", model)`). La cita ahora lo nombra.
+
+**Pasada de cierre tras el veredicto** (`reviews/verdict-tower-grafo-s1-taxonomia.md`).
+Tres defectos de la misma clase, corregidos aquí: **(1)** la cita `:388` de §2
+pertenece al bloque de prosa `_SAID` (`operator_updates.py:387-395`), que consume
+`_line` (`:398-403`), **no** a `publish_waiting` — el número era correcto y el dueño
+no; **(2)** el empalme de la espera en §4 es `mergeWaitingIntoPortfolio`
+(`towerBuzzSource.ts:85-99`, con el `byJob.get` en `:91`) y las ramas del huérfano
+van en `:105-117`: el rango citado antes, `:90-119`, las contenía a las dos y
+empezaba cinco líneas tarde; **(3)** el vocabulario de prosa **sin kind** —`delegated` (`:458`) y `summary`
+(`mandate.py:62`)— faltaba en el inventario de §2. Verificado línea a línea con
+`git show main:<fichero> | sed -n '<línea>p'` sobre `ab63b0129`; las líneas nuevas
+citadas en esta pasada (`:331`, `:339-344`, `:387-395`, `:112-118`, `:160-168`,
+`:221-223`, `:458`) se leyeron con la misma comprobación.
 
 ---
 
@@ -108,11 +125,12 @@ llamadores reales en el piloto (`publish_update(` / `_publish_lifecycle(` en
 
 | Estado de tarjeta | ¿Llamador hoy? | Llamadores observados |
 |---|---|---|
-| `requested` (43001) | **No** | ningún llamador pasa `"created"`; el único literal `"created"` es el propio mapeo (`operator_updates.py:203`) y la prosa de `publish_waiting` (`:388`). `mandate.py:62` pasa `"summary"`, ausente del mapeo → `publish_job_event` devuelve `False` y **no** emite kind |
+| `requested` (43001) | **No** | ningún llamador pasa `"created"`; los dos únicos literales están en el propio mapeo (`operator_updates.py:203`) y en el bloque de prosa `_SAID` (`:387-395`; el `"created"` en `:388`), que consume `_line` (`:398-403`) — **no** en `publish_waiting`, que usa su propio bloque `_WAITING_SAID` (`:331-336`) vía `_waiting_line` (`:339-344`) |
 | `running` (43002/43003) | Sí | latido: `launch_tower.py:244-248` y `supervisor.py:101-103` (`"running"`, no pasan por `_publish_lifecycle`); `started`: `launch_tower.py:287`, `:348`, `supervisor.py:155`, `worker.py:115`; alias `blocked`: `launch_tower.py:418`, `operator_updates.py:454-457` |
 | `done` (43004) | Sí | `launch_tower.py:303`, `:335`, `:386`; `supervisor.py:196`; `worker.py:192` |
 | `cancelled` (43005) | Sí | `launch_tower.py:297`, `:301`, `:396`; `supervisor.py:225`; `worker.py:207` |
 | `failed` (43006) | Sí | `launch_tower.py:297`, `:396`; `supervisor.py:225`; `worker.py:171`, `:207` |
+| *(no es estado de tarjeta)* **vocabulario de prosa sin kind**: `delegated`, `summary` | **No emiten kind** | `delegated` (`operator_updates.py:458`: delegación que resuelve sin dependencias pendientes) y `summary` (`mandate.py:62`) **no están** en `JOB_EVENT_STATE` (`operator_updates.py:202-210`), así que `publish_job_event` devuelve `False` (`operator_updates.py:221-223`) y no publica evento de ciclo de vida: dejan prosa en la sala (`format_update`, `operator_updates.py:112-118` y `operator_updates.py:160-168`) y nada más. No son estados de tarjeta; la fila está para que el inventario de «sin señal / sin kind» no oculte un camino mudo |
 
 **Consecuencia, y decisión del maestro (2026-09-24): opción (b).** Por la regla de
 esta taxonomía un estado sin productor se declara «sin señal». `requested` **no
@@ -223,7 +241,8 @@ encargo lo roza y porque el coder debe saber que existe y que no está dibujado.
 | Kind | `kinds.ts:40`; CLI `jobs.rs:51-52`, `:62-64` |
 | Productor | `control_plane/pursue.py:529-530` → `publish_waiting` `operator_updates.py:347-382` → `jobs publish --state waiting ... --reason ...` (`:365-367`) |
 | Vocabulario cerrado de razones | `ladder_exhausted`, `capability_denied` (`operator_updates.py:320-323`; `towerJobWaiting.ts:29-32`) |
-| Lector | `desktop/src/shared/api/towerJobWaiting.ts` (`foldWaitingForJob`); se une a la línea en `towerBuzzSource.ts:90-119` |
+| Lector | `desktop/src/shared/api/towerJobWaiting.ts` (`foldWaitingForJob`) |
+| Empalme en el portafolio | `mergeWaitingIntoPortfolio` (`desktop/src/shared/api/towerBuzzSource.ts:85-99`; el `byJob.get` va en `:91`) pega la espera a su línea; las ramas del huérfano —una espera sin evento de ciclo de vida en la misma lectura— van en `:105-117` (`orphanWaitingLine`, `basis: null`) |
 | Superficie | **ninguna**: `grep -rn "waiting" desktop/src/features/tower/ui/*.tsx` → sin salida |
 
 **Decisión del maestro (2026-09-24, declarada reversible): `43008` no entra en S1.**
