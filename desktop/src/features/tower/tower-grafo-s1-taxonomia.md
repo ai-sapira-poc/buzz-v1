@@ -23,8 +23,9 @@ y `43008` (encargo en reposo), y **`43008` sí tiene productor**
 siguiente movimiento es del operador», y hoy no está dibujado en ninguna
 superficie. Por tanto la taxonomía correcta es: **cinco estados de ciclo de vida
 legibles de 43001-43006**; `bloqueado` declarado «sin señal» y **no dibujado**; y
-`43008` como estado **adyacente con productor pero sin superficie** — decisión que
-dejo al operador, no que yo tomo.
+`43008` como estado **adyacente con productor pero sin superficie**, y **fuera de S1**
+por decisión del maestro (2026-09-24, reversible): va a la slice siguiente, y solo
+entra si su productor ha emitido al menos una vez **en vivo**.
 
 Corrección adicional, porque afecta a lo que el coder puede asumir: la frontera
 previa declaraba la admisión de las kinds de job en el relay como **no
@@ -52,6 +53,16 @@ los scripts del piloto están ahora fijadas a `main` y reproducen con
 `git show ab63b0129:<fichero> | sed -n '<línea>p'`. Regla adoptada: **citar
 siempre desde el commit que la PR entrega, nunca desde el árbol de trabajo.**
 
+**Re-verificación de citas (rama `agent/tower-grafo-s1`; base `main` = `ab63b0129`).**
+Comprobé una a una todas las
+citas de este documento contra `main` (`ab63b0129`) con `git show ab63b0129:<fichero>
+| sed -n '<línea>p'`. Dos defectos de la misma clase quedaron corregidos en esa pasada:
+tres citas abreviadas de §2 (`:205`, `:207`, `:208`) apuntaban, tal como estaban
+escritas, a líneas inexistentes de `towerJobFold.ts` (162 líneas) y ahora llevan el
+nombre del fichero; y el llamador de `publish_delegation` está en `capabilities.py` de
+la raíz del piloto, no en `control_plane/`. Las rutas del piloto son relativas a
+`experiments/buzz-autonomy/`.
+
 ---
 
 ## 2. Taxonomía: los cinco estados de tarjeta legibles de 43001-43006
@@ -60,10 +71,10 @@ siempre desde el commit que la PR entrega, nunca desde el árbol de trabajo.**
 |---|---|---|---|---|---|---|
 | 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:203`) | pedido, sin arrancar |
 | 2 | `running` (aceptado) | 43002 | `kinds.ts:27` | `towerJobFold.ts:34` | `started` (`operator_updates.py:204`) | aceptado |
-| 3 | `running` (progreso) | 43003 | `kinds.ts:28` | `towerJobFold.ts:35` | `running` (`:205`) **y `blocked` (`:209`)** | trabajando / **contaminado** |
+| 3 | `running` (progreso) | 43003 | `kinds.ts:28` | `towerJobFold.ts:35` | `running` (`operator_updates.py:205`) **y `blocked` (`:209`)** | trabajando / **contaminado** |
 | 4 | `done` | 43004 | `kinds.ts:29` | `towerJobFold.ts:36` | `done` (`operator_updates.py:206`) | entregado |
-| 5 | `cancelled` | 43005 | `kinds.ts:30` | `towerJobFold.ts:37` | `cancelled` (`:207`) | detenido por decisión |
-| 6 | `failed` | 43006 | `kinds.ts:31` | `towerJobFold.ts:38` | `failed` (`:208`) | no entregó |
+| 5 | `cancelled` | 43005 | `kinds.ts:30` | `towerJobFold.ts:37` | `cancelled` (`operator_updates.py:207`) | detenido por decisión |
+| 6 | `failed` | 43006 | `kinds.ts:31` | `towerJobFold.ts:38` | `failed` (`operator_updates.py:208`) | no entregó |
 
 Dos kinds colapsan en `running` (aceptado y progreso): la tarjeta tiene **cinco**
 valores, no seis. Es una decisión del plegado, no un defecto. `requested` es fila
@@ -145,9 +156,13 @@ encargo lo roza y porque el coder debe saber que existe y que no está dibujado.
 | Lector | `desktop/src/shared/api/towerJobWaiting.ts` (`foldWaitingForJob`); se une a la línea en `towerBuzzSource.ts:90-119` |
 | Superficie | **ninguna**: `grep -rn "waiting" desktop/src/features/tower/ui/*.tsx` → sin salida |
 
-**Decisión que este documento no toma (es del director):** ¿la tarjeta de S1
-muestra el reposo (`43008`) o se difiere? Tiene productor y lector, y ninguna
-superficie. No confundirlo con la celda de bloqueo: son cosas distintas.
+**Decisión del maestro (2026-09-24, declarada reversible): `43008` no entra en S1.**
+Se difiere a la slice siguiente con un requisito de entrada explícito — que su
+productor haya emitido al menos una vez **en vivo** —, el mismo requisito que la arista
+padre→hijo. Razón: S1 es el andamio del vocabulario de ciclo de vida y de la costura de
+proyección; un estado adyacente sin superficie obliga a decidir su vacío y su foco antes
+de que exista un encargo que los pida. Este documento deja de tener esa pregunta abierta.
+No confundirlo con la celda de bloqueo: son cosas distintas.
 
 ---
 
@@ -157,7 +172,7 @@ superficie. No confundirlo con la celda de bloqueo: son cosas distintas.
 |---|---|---|
 | **modelo** | ninguno en la lectura; `gen_ai.request.model` vive en el span de turno (`telemetry.py`), que no está vivo ni se lee | «no disponible» con la razón |
 | **coste** | ninguno: `towerJobFold.ts:98` `cost: null` | «no disponible», **nunca `$0`**; ningún total |
-| **profundidad** | `jobs.parent` no se publica | «sin señal»; agrupar por `role`, no por profundidad |
+| **profundidad** | la arista padre→hijo **existe y está mergeada** (`43007`, `kinds.ts:35`; PR #7 → `e2319442d`), pero queda **fuera de S1 por alcance** (aristas = S2) | la tarjeta se agrupa por `role`; no es «sin señal» ni «sin productor» |
 
 ---
 
@@ -193,20 +208,22 @@ superficie. No confundirlo con la celda de bloqueo: son cosas distintas.
   `publish_job_event` construye los args sin `--trace` (`operator_updates.py:230-232`)
   y `publish_update` no lo pasa (`:422`), aunque el CLI lo declara (`lib.rs:806-808`) y
   construye el tag (`jobs.rs:227-230`). No lo vi publicado.
-- **`43008` no tiene consumidor de UI** (grep). Si el diseño de S1 lo espera, falta.
+- **`43008` no tiene consumidor de UI** (grep): ninguna superficie lo dibuja, coherente
+  con que S1 no lo integre.
 
 ---
 
 ## 8. Decisión y condiciones de revisión
 
 S1 dibuja **cinco estados** (`requested`, `running`, `done`, `cancelled`, `failed`),
-**agrupa por `role`** (la profundidad no tiene productor), **no dibuja bloqueo ni
-profundidad**, y declara **modelo y coste «no disponible»** (nunca `$0`, ningún
-total).
+**agrupa por `role`** (las aristas padre→hijo son de S2 **por alcance**, no por falta de
+dato: `43007` está mergeada, PR #7 → `e2319442d`), **no dibuja bloqueo ni profundidad**,
+y declara **modelo y coste «no disponible»** (nunca `$0`, ningún total).
 
 Revisar esta taxonomía si: **(i)** se añade una kind o un tag de bloqueo;
 **(ii)** se corrige el alias `blocked→progress` (recordando los **dos** caminos);
-**(iii)** el director decide que la tarjeta de S1 muestre `43008`.
+**(iii)** la slice siguiente integra `43008` — requisito de entrada: que su productor
+haya emitido al menos una vez en vivo.
 
 ---
 
@@ -221,8 +238,9 @@ Revisar esta taxonomía si: **(i)** se añade una kind o un tag de bloqueo;
   ninguna superficie.
 - **A @revisor:** que la superficie renderizada no contenga «blocked», ni un `0`
   de bloqueo, ni «profundidad», ni un nombre de modelo.
-- **Decisión pendiente del director:** ¿`43008` (reposo) entra en la tarjeta de S1
-  o se difiere? Y ratificar que S1 no dibuja bloqueo.
+- **Decisión cerrada (maestro):** `43008` (reposo) **no entra en S1**; va a la slice
+  siguiente con el requisito de que su productor haya emitido en vivo. S1 no dibuja
+  bloqueo: se declara «sin señal», sin cifra.
 
 **Límite de este documento:** sin ejecución del piloto, sin publicación contra
 relay, sin trazas en vivo. Cada afirmación es código en disco en HEAD
