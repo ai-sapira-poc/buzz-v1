@@ -5,6 +5,7 @@ import { TowerEmptyState } from "./TowerEmptyState";
 import { TowerErrorState, TowerStaleBanner } from "./TowerErrorState";
 import { TowerLoadingState } from "./TowerLoadingState";
 import { TowerNeedsAttention } from "./TowerNeedsAttention";
+import type { HandoverView } from "./handoverState";
 import { linesNeedingAttention, type PortfolioView } from "./portfolioState";
 
 /**
@@ -15,7 +16,7 @@ import { linesNeedingAttention, type PortfolioView } from "./portfolioState";
  * announces this read: both take the same {@link PortfolioView} phase, and
  * `buildPanelRows` maps the portfolio 1:1, so its count is this canvas's card
  * count. A second region here announced one transition twice — once in English,
- * once in Spanish. The canvas's own fact, the role grouping, is stated in the
+ * once in Spanish. The canvas's own fact, what a layer means, is stated in the
  * note below, in document order; it only changes when the read does.
  *
  * The three state components (`TowerLoadingState`, `TowerEmptyState`,
@@ -30,11 +31,31 @@ import { linesNeedingAttention, type PortfolioView } from "./portfolioState";
  * (which leaves the canvas mounted) must not pull focus out of wherever the
  * operator left it.
  */
-export function GrafoSection({ view }: { view: PortfolioView }) {
+export function GrafoSection({
+  view,
+  handovers,
+}: {
+  view: PortfolioView;
+  /**
+   * The edge read (the handoff edge). **Required** on purpose: a defaulted
+   * `null` would let a caller's omission render as "there are no handoffs",
+   * which is a claim only an empty read may make.
+   */
+  handovers: HandoverView;
+}) {
   const { lines } = view;
   const hasLines = lines !== null && lines.length > 0;
   const attention = lines === null ? [] : linesNeedingAttention(lines);
   const showingStale = view.phase === "unreachable" && lines !== null;
+  // An edge endpoint needs a window node to be an orphan *of*; with no window
+  // there is nothing to be orphaned from, so the frozen empty state wins and no
+  // orphan is drawn. The read is still named, without a figure — the read is
+  // capped, so any count would be "what was read", not "what there is".
+  const edgesWithoutWindow =
+    lines !== null &&
+    lines.length === 0 &&
+    handovers.lines !== null &&
+    handovers.lines.length > 0;
 
   const [focusCardPending, setFocusCardPending] = React.useState(false);
   const handleErrorRetry = React.useCallback(() => {
@@ -54,15 +75,15 @@ export function GrafoSection({ view }: { view: PortfolioView }) {
     >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-semibold">Tower Control · graph</h2>
-        {/* What the grouping truly is, and where depth will come from, so no
-            reader mistakes the columns for a hierarchy. */}
+        {/* What the grouping truly is: depth in this window, derived from the
+            handoff path — never an absolute hierarchy. */}
         <p
           className="text-2xs text-muted-foreground"
           data-testid="tower-grafo-grouping-note"
         >
-          One column per role the producer named — the role each job carries,
-          not the depth of the work. Depth is the handoff from one job to the
-          next; the handoff edges are not drawn on this surface yet.
+          One column per depth in this window — the handoff path (the handoff
+          edge) from one job to the next, not an absolute hierarchy. Arrows
+          point from the parent job to the child it handed off to.
         </p>
       </div>
 
@@ -79,6 +100,15 @@ export function GrafoSection({ view }: { view: PortfolioView }) {
       {/* Keyed on the snapshot, not on `ready`: a stale read whose last good
           result was empty must still explain itself under the stale banner. */}
       {lines !== null && lines.length === 0 ? <TowerEmptyState /> : null}
+      {edgesWithoutWindow ? (
+        <p
+          className="text-2xs text-muted-foreground"
+          data-testid="tower-grafo-no-window-note"
+        >
+          The handoff edge read did carry handoffs, but this window has no card
+          to anchor them to, so none is drawn.
+        </p>
+      ) : null}
       {view.phase === "unreachable" && lines === null ? (
         <TowerErrorState
           failure={view.failure}
@@ -89,6 +119,7 @@ export function GrafoSection({ view }: { view: PortfolioView }) {
       {hasLines && lines !== null ? (
         <GrafoCanvas
           focusOnMount={focusCardPending && hasLines}
+          handovers={handovers}
           lines={lines}
         />
       ) : null}

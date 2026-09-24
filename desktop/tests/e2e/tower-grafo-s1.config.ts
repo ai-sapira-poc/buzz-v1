@@ -54,7 +54,7 @@ const url = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: ".",
-  testMatch: ["tower-grafo-s1.spec.ts"],
+  testMatch: ["tower-grafo-s1.spec.ts", "tower-grafo-s2.spec.ts"],
   timeout: 90_000,
   // One retry locally, two in CI — a net for the shared mock harness, not for
   // this surface.

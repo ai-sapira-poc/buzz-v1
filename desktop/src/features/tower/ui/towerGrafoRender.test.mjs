@@ -65,24 +65,62 @@ function snapshot(overrides) {
   };
 }
 
-function render(view) {
-  return renderToStaticMarkup(React.createElement(GrafoSection, { view }));
+/**
+ * The edge read with nothing in it — the only read that may mean "no edges".
+ *
+ * `GrafoSection` takes its edge read as a **required** prop (an omitted reader
+ * must not render as "there are no handoffs"), so this fixture is the
+ * mechanical consequence of that contract, not a second assertion.
+ */
+const EMPTY_EDGE_READ = {
+  phase: "ready",
+  lines: [],
+  lastSuccessAt: "2026-09-23T20:00:00.000Z",
+  failure: null,
+  refreshing: false,
+  retry: () => {},
+};
+
+function render(view, handovers = EMPTY_EDGE_READ) {
+  return renderToStaticMarkup(
+    React.createElement(GrafoSection, { view, handovers }),
+  );
 }
 
 function countOf(html, testId) {
   return (html.match(new RegExp(`data-testid="${testId}"`, "g")) ?? []).length;
 }
 
-function columnTitles(html) {
+/**
+ * The role text of each card, read **inside the card element**.
+ *
+ * The scoping is the assertion: `tower-node-role` rendered anywhere else (an
+ * attention band, the portfolio row, the handoff section) is not the guarantee
+ * S1-2 needs. D1 removed the column per role, so the role has no heading left
+ * to live in — it must ride the card, and this reads it there. A card that lost
+ * the label reports `null`, so moving the role off the card fails here even if
+ * some other surface still prints it.
+ */
+function cardRoles(html) {
+  return html
+    .split('data-testid="tower-node"')
+    .slice(1)
+    .map((card) => {
+      const match = card.match(/data-testid="tower-node-role"[^>]*>([^<]*)</);
+      return match === null ? null : match[1];
+    });
+}
+
+function layerTitles(html) {
   const titles = [];
-  const pattern = /data-testid="tower-grafo-column-title"[^>]*>([^<]+)<\/h3>/g;
+  const pattern = /data-testid="tower-grafo-layer-title"[^>]*>([^<]+)<\/h3>/g;
   for (const match of html.matchAll(pattern)) {
     titles.push(match[1]);
   }
   return titles;
 }
 
-test("real agent work renders as one card per job, grouped by role", async () => {
+test("real agent work renders as one card per job in the depth layout", async () => {
   const source = createTowerBuzzSource(
     async () => [
       jobEvent({ kind: 43002, job: "buzz-autonomy", role: "builder", at: 100 }),
@@ -102,7 +140,9 @@ test("real agent work renders as one card per job, grouped by role", async () =>
   const html = render(derivePortfolioView(snapshot({ data: lines }), () => {}));
 
   assert.equal(countOf(html, "tower-node"), 3);
-  assert.deepEqual(columnTitles(html).sort(), ["builder", "reviewer"]);
+  // S1-1: the grouping is no longer the role. D1 groups by depth, and with no
+  // handoff edge in this read every node is a root *of this window*: one layer.
+  assert.deepEqual(layerTitles(html), ["Depth 0"]);
   assert.doesNotMatch(html, /tower-empty-state/);
   assert.doesNotMatch(html, /tower-error-state/);
   assert.match(html, /Running/);
@@ -118,7 +158,7 @@ test("real agent work renders as one card per job, grouped by role", async () =>
   assert.match(html, /drawing cards/);
 });
 
-test("the grouping is the role and says depth is not drawn", () => {
+test("the grouping is depth in this window, and says so", () => {
   const html = render(
     derivePortfolioView(
       snapshot({ data: [line({ job: "j1", role: "builder" })] }),
@@ -127,14 +167,36 @@ test("the grouping is the role and says depth is not drawn", () => {
   );
 
   assert.match(html, /tower-grafo-grouping-note/);
-  assert.match(html, /not the depth of the work/);
-  assert.match(html, /handoff edges are not drawn on this surface yet/);
-  // No connector of any kind: the canvas is a grouping, not a graph layout.
+  // S1-4: the note says what a layer is, and that it is not an absolute level.
+  assert.match(html, /depth in this window/);
+  assert.match(html, /not an absolute hierarchy/);
+  // S1-3, strengthened rather than deleted: with the edge read empty there is
+  // no edge element at all, so a connector invented by the layout still cannot
+  // pass this line.
   assert.equal(countOf(html, "tower-grafo-edge"), 0);
-  assert.doesNotMatch(html, /<svg/);
 });
 
-test("a line with no role is grouped, never dropped", () => {
+test("the role rides each card, read from the card itself", () => {
+  const html = render(
+    derivePortfolioView(
+      snapshot({
+        data: [
+          line({ job: "j1", role: "builder" }),
+          line({ job: "j2", role: "" }),
+        ],
+      }),
+      () => {},
+    ),
+  );
+
+  // S1-2: D1 removed the column per role, so the role has no heading left to
+  // live in and rides the card. Read per card: deleting the label from the card
+  // fails here even if it survives in some other surface's markup.
+  assert.equal(cardRoles(html).length, countOf(html, "tower-node"));
+  assert.deepEqual(cardRoles(html), ["builder", "Unnamed agent"]);
+});
+
+test("a line with no role is drawn, never dropped", () => {
   const html = render(
     derivePortfolioView(
       snapshot({
@@ -148,7 +210,8 @@ test("a line with no role is grouped, never dropped", () => {
   );
 
   assert.equal(countOf(html, "tower-node"), 2);
-  assert.deepEqual(columnTitles(html).sort(), ["Unnamed agent", "builder"]);
+  // S1-1, second site: the placeholder is still drawn — it now rides the card.
+  assert.deepEqual(layerTitles(html), ["Depth 0"]);
 });
 
 test("model and cost with no producer read as absent, never as zero", () => {

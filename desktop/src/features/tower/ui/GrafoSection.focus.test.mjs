@@ -50,17 +50,36 @@ function view(overrides = {}) {
   };
 }
 
+/**
+ * The edge read `GrafoSection` now requires (S2 §3.3: an omitted reader must
+ * not render as "there are no handoffs"). Empty, so it adds no card and no
+ * edge: this file is about focus, not about edges.
+ */
+const NO_EDGES = {
+  phase: "ready",
+  lines: [],
+  lastSuccessAt: null,
+  failure: null,
+  refreshing: false,
+  retry: () => {},
+};
+
 async function mount(portfolioView) {
   const React = await import("react");
   const { render } = await import("@testing-library/react");
   const { GrafoSection } = await import("./GrafoSection.tsx");
   const result = render(
-    React.createElement(GrafoSection, { view: portfolioView }),
+    React.createElement(GrafoSection, {
+      handovers: NO_EDGES,
+      view: portfolioView,
+    }),
   );
   return {
     ...result,
     draw: (next) =>
-      result.rerender(React.createElement(GrafoSection, { view: next })),
+      result.rerender(
+        React.createElement(GrafoSection, { handovers: NO_EDGES, view: next }),
+      ),
     cards: () =>
       result.container.querySelectorAll('[data-testid="tower-node"]'),
     retryButton: () => result.container.querySelector("button"),
