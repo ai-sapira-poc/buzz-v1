@@ -1,3 +1,5 @@
+import * as React from "react";
+
 import { GrafoCanvas } from "./GrafoCanvas";
 import { TowerEmptyState } from "./TowerEmptyState";
 import { TowerErrorState, TowerStaleBanner } from "./TowerErrorState";
@@ -20,12 +22,29 @@ import { linesNeedingAttention, type PortfolioView } from "./portfolioState";
  * `TowerErrorState`) are reused verbatim: the canvas and the row view describe
  * the same read, so a second copy of "reading", "empty" or "failed" would be a
  * second owner of the same message.
+ *
+ * The section carries the row view's spec §6 keyboard hand-off, because it
+ * replaces that view on this screen: when the operator's own `Retry` resolves
+ * into cards, focus moves to the first card — and only then. A plain
+ * loading → data transition must not steal focus, and the stale banner's Retry
+ * (which leaves the canvas mounted) must not pull focus out of wherever the
+ * operator left it.
  */
 export function GrafoSection({ view }: { view: PortfolioView }) {
   const { lines } = view;
   const hasLines = lines !== null && lines.length > 0;
   const attention = lines === null ? [] : linesNeedingAttention(lines);
   const showingStale = view.phase === "unreachable" && lines !== null;
+
+  const [focusCardPending, setFocusCardPending] = React.useState(false);
+  const handleErrorRetry = React.useCallback(() => {
+    setFocusCardPending(true);
+    view.retry();
+  }, [view.retry]);
+  React.useEffect(() => {
+    if (focusCardPending && hasLines) setFocusCardPending(false);
+  }, [focusCardPending, hasLines]);
+  const cancelHandoff = React.useCallback(() => setFocusCardPending(false), []);
 
   return (
     <section
@@ -61,9 +80,18 @@ export function GrafoSection({ view }: { view: PortfolioView }) {
           result was empty must still explain itself under the stale banner. */}
       {lines !== null && lines.length === 0 ? <TowerEmptyState /> : null}
       {view.phase === "unreachable" && lines === null ? (
-        <TowerErrorState failure={view.failure} onRetry={view.retry} />
+        <TowerErrorState
+          failure={view.failure}
+          onRetry={handleErrorRetry}
+          onRetryBlur={cancelHandoff}
+        />
       ) : null}
-      {hasLines && lines !== null ? <GrafoCanvas lines={lines} /> : null}
+      {hasLines && lines !== null ? (
+        <GrafoCanvas
+          focusOnMount={focusCardPending && hasLines}
+          lines={lines}
+        />
+      ) : null}
     </section>
   );
 }

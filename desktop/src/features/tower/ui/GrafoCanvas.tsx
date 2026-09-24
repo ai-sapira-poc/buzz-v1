@@ -17,13 +17,24 @@ import { flattenColumns, groupByRole } from "./grafoGroups";
  * card does not navigate. Full keyboard navigation of the canvas is a later
  * stage's contract; S1 guarantees reachability and a walkable order.
  *
+ * `focusOnMount` is the spec §6 hand-off the section owns: it is true only on
+ * the commit that follows the operator's own `Retry`, never on a plain
+ * loading → data transition.
+ *
  * Known limit, written down here as an **S2 entry requirement** (reviewer F3)
  * rather than fixed in S1: the tab stop is the card's own `<li>`, whose
  * accessible name is its contents, so a card is read without its position —
  * "card 3 of 5, column `arquitecto`" — and the scrolling wrapper is not itself
  * focusable, so the canvas can only be scrolled by first focusing a card.
  */
-export function GrafoCanvas({ lines }: { lines: PortfolioLine[] }) {
+export function GrafoCanvas({
+  lines,
+  focusOnMount = false,
+}: {
+  lines: PortfolioLine[];
+  /** Focus the active card on mount — the post-Retry hand-off (spec §6). */
+  focusOnMount?: boolean;
+}) {
   const columns = React.useMemo(() => groupByRole(lines), [lines]);
   const cards = React.useMemo(() => flattenColumns(columns), [columns]);
   const offsets = React.useMemo(() => {
@@ -38,6 +49,11 @@ export function GrafoCanvas({ lines }: { lines: PortfolioLine[] }) {
 
   const [activeIndex, setActiveIndex] = React.useState(0);
   const cardRefs = React.useRef<Array<HTMLLIElement | null>>([]);
+
+  React.useEffect(() => {
+    if (!focusOnMount) return;
+    cardRefs.current[activeIndex]?.focus();
+  }, [focusOnMount, activeIndex]);
 
   // A refetch that moves or shrinks the canvas must not leave the tab stop on a
   // card that no longer exists, or the canvas would silently drop out of the
