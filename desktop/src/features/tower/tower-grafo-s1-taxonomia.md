@@ -261,17 +261,30 @@ emitiera en vivo al menos una vez, y emitió. Lectura propia del relay
 buzz messages get --channel 55c3438a-e7e8-4d5c-acd9-6e066a8f178d --kinds 43008 --limit 200
 → 27 objetos · 2026-09-23T16:41:26Z → 2026-09-24T02:00:04Z (9,3 h)
   job=tower-coder · reason=ladder_exhausted · un solo firmante
+
+re-lectura propia, --limit 500, leído el 2026-09-24T11:42:16Z
+→ 31 objetos (la emisión del productor sigue viva)
 ```
 
-**Alcance de la lectura:** barrió los **nueve canales visibles para mi identidad**
-—`sala-tower-grafo`, `sala-tg-d`, `sala-tg-s1`, `panel-agentes`, `control-plane`,
-`tower-control`, `vision-e2e`, `Towe Visual`, `general`—, cada uno con
-`--kinds 43001,…,43008 --limit 200`. Los 27 objetos de `43008` están **todos** en
-`tower-control`; los otros ocho devuelven 0 para esa kind. Ninguno de esos canales
-tenía más de 80 eventos de las kinds pedidas, así que la ventana no recorta los
-conteos. Tabla por canal y kind: `architecture/tower-grafo-live-kindcheck.md`.
+**Alcance de la lectura (fechado).** Barrió los **nueve canales visibles para mi
+identidad** —`sala-tower-grafo`, `sala-tg-d`, `sala-tg-s1`, `panel-agentes`,
+`control-plane`, `tower-control`, `vision-e2e`, `Towe Visual`, `general`—, cada uno
+con `--kinds 43001,…,43008 --limit 200`. Los 27 objetos de `43008` eran la lectura de
+la ronda del 2026-09-23; en la re-lectura del **2026-09-24T11:42:16Z** son **31**, y
+siguen estando **todos** en `tower-control`; los otros ocho canales devuelven 0 para
+esa kind. Tabla por canal y kind de la primera ronda:
+`architecture/tower-grafo-live-kindcheck.md`.
 
-Reproducido de forma independiente por el maestro (misma cifra, `truncated:false`).
+**La ventana sí recorta: un conteo de una sola consulta es un suelo, no un total.**
+La lectura anterior afirmaba que «ninguno de esos canales tenía más de 80 eventos de
+las kinds pedidas, así que la ventana no recorta los conteos». Esa frase quedó
+**falsificada**: la consulta combinada de las ocho kinds en `sala-tower-grafo`
+devuelve **200 con `--limit 200` y 200 con `--limit 500`** —está topada— con reloj del
+2026-09-24T11:42:16Z. El total sólo lo da el conteo **kind a kind**; una consulta
+combinada es una cota inferior.
+
+Reproducido de forma independiente por el maestro (misma cifra, `truncated:false`) en
+la ronda del 23-09.
 **Esto no mete `43008` en S1**: la decisión de diferirlo sigue en pie y es reversible.
 Lo que cambia es que el requisito de entrada de la slice siguiente ya no está pendiente,
 no que la slice empiece.
@@ -323,9 +336,11 @@ no que la slice empiece.
     kind termina en `Err("restricted: unknown event kind")` (`:562`). Hasta
     `90bdd0c55` (2026-09-17) ninguna de ellas tenía scope asignado y **toda** escritura
     se rechazaba: el protocolo tenía consumidor y no tenía puerta de entrada.
-  - **Observado en vivo:** `43008` está admitido — 27 eventos almacenados y releídos en
-    `tower-control` (ventana de 9,3 h, §4). `43002`–`43006` también: 98 eventos en
-    `sala-tower-grafo` (`43002`×26, `43003`×52, `43004`×11, `43005`×1, `43006`×8).
+  - **Observado en vivo:** `43008` está admitido — 31 eventos almacenados y releídos en
+    `tower-control` (**leído el 2026-09-24T11:42:16Z**; la lectura del 23-09 dio 27, §4).
+    `43002`–`43006` también: 231 eventos en `sala-tower-grafo` (**misma lectura**:
+    `43002`×41, `43003`×156, `43004`×20, `43005`×4, `43006`×10); la ronda del 23-09 leyó
+    98 (`26/52/11/1/8`). El ciclo sigue emitiendo: toda cifra sin fecha envejece.
   - **Inferido, no publicado:** la alternativa es un bloque contiguo que creció en tres
     commits — `90bdd0c55` (`43001`–`43006`), `aa1fc86c4` (`43007`), `7a6df79d5`
     (`43008`) — y `7a6df79d5` **desciende** de los otros dos (`git merge-base
