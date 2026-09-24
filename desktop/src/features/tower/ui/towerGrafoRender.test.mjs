@@ -238,11 +238,14 @@ test("each surface state carries text: loading and empty are never blank", () =>
     derivePortfolioView(snapshot({ isPending: true }), () => {}),
   );
   assert.match(loading, /tower-loading-state/);
-  assert.match(loading, /Reading the agent work/);
   assert.equal(countOf(loading, "tower-node"), 0);
+  // One read, one announcement: the panel owns it. A live region here would
+  // announce the same `PortfolioView` transition a second time.
+  assert.doesNotMatch(loading, /aria-live/);
 
   const empty = render(derivePortfolioView(snapshot({ data: [] }), () => {}));
   assert.match(empty, /tower-empty-state/);
   assert.match(empty, /No lines to show yet/);
   assert.equal(countOf(empty, "tower-node"), 0);
+  assert.doesNotMatch(empty, /aria-live/);
 });

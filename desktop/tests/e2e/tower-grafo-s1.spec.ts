@@ -324,6 +324,16 @@ test.describe("tower grafo s1 — every surface state says something", () => {
     await openTower(page);
     await waitForPortfolioSettled(page);
 
+    // One read, one announcement. The canvas owns no live region: it and the
+    // panel branch on the same `PortfolioView` phase, so a region in each
+    // announced one transition twice. This locator is the regression guard —
+    // a region added inside the graph subtree, or on the graph section itself,
+    // turns every assertion below red.
+    const announcementInGraph = page.locator(
+      '[data-testid="tower-grafo"] [aria-live], [data-testid="tower-grafo"][aria-live]',
+    );
+    await expect(announcementInGraph).toHaveCount(0);
+
     // In flight.
     await patchPortfolioQuery(page, {
       status: "pending",
@@ -332,10 +342,11 @@ test.describe("tower grafo s1 — every surface state says something", () => {
       dataUpdatedAt: 0,
     });
     await expect(page.getByTestId("tower-loading-state")).toBeVisible();
-    await expect(
-      page.getByTestId("tower-grafo-status-announcement"),
-    ).toHaveText("Reading the agent work");
+    await expect(page.getByTestId("panel-status-announcement")).toHaveText(
+      "Leyendo los encargos — aún buscando, no es un vacío",
+    );
     await expect(page.getByTestId("tower-node")).toHaveCount(0);
+    await expect(announcementInGraph).toHaveCount(0);
 
     // Empty: a successful read that carried nothing is not a failure, and it
     // must not be a blank surface either.
@@ -344,9 +355,10 @@ test.describe("tower grafo s1 — every surface state says something", () => {
     await expect(page.getByTestId("tower-empty-state")).toContainText(
       "No lines to show yet",
     );
-    await expect(
-      page.getByTestId("tower-grafo-status-announcement"),
-    ).toHaveText("No cards to draw");
+    await expect(page.getByTestId("panel-status-announcement")).toHaveText(
+      "No hay encargos en este periodo",
+    );
+    await expect(announcementInGraph).toHaveCount(0);
 
     // Failed: the motive and a way back, never a figure.
     await patchPortfolioQuery(page, {
@@ -363,8 +375,9 @@ test.describe("tower grafo s1 — every surface state says something", () => {
       page.getByTestId("tower-grafo").getByRole("button", { name: "Retry" }),
     ).toBeVisible();
     await expect(page.getByTestId("tower-node")).toHaveCount(0);
-    await expect(
-      page.getByTestId("tower-grafo-status-announcement"),
-    ).toHaveText("Could not read the agent work");
+    await expect(page.getByTestId("panel-status-announcement")).toHaveText(
+      "No se pudo leer el registro de encargos",
+    );
+    await expect(announcementInGraph).toHaveCount(0);
   });
 });

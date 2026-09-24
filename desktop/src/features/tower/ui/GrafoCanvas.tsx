@@ -16,6 +16,12 @@ import { flattenColumns, groupByRole } from "./grafoGroups";
  * column), Home/End jump to the ends. Cards are read-only: focus moves, the
  * card does not navigate. Full keyboard navigation of the canvas is a later
  * stage's contract; S1 guarantees reachability and a walkable order.
+ *
+ * Known limit, written down here as an **S2 entry requirement** (reviewer F3)
+ * rather than fixed in S1: the tab stop is the card's own `<li>`, whose
+ * accessible name is its contents, so a card is read without its position —
+ * "card 3 of 5, column `arquitecto`" — and the scrolling wrapper is not itself
+ * focusable, so the canvas can only be scrolled by first focusing a card.
  */
 export function GrafoCanvas({ lines }: { lines: PortfolioLine[] }) {
   const columns = React.useMemo(() => groupByRole(lines), [lines]);

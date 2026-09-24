@@ -7,33 +7,20 @@ import { linesNeedingAttention, type PortfolioView } from "./portfolioState";
 
 /**
  * The canvas, wrapped in the same section shell the portfolio uses: one phase,
- * one snapshot, the same four surface states, and **one** `aria-live` region
- * per phase change.
+ * one snapshot, the same four surface states.
+ *
+ * **This section carries no `aria-live` of its own.** `PanelSection` already
+ * announces this read: both take the same {@link PortfolioView} phase, and
+ * `buildPanelRows` maps the portfolio 1:1, so its count is this canvas's card
+ * count. A second region here announced one transition twice — once in English,
+ * once in Spanish. The canvas's own fact, the role grouping, is stated in the
+ * note below, in document order; it only changes when the read does.
  *
  * The three state components (`TowerLoadingState`, `TowerEmptyState`,
  * `TowerErrorState`) are reused verbatim: the canvas and the row view describe
  * the same read, so a second copy of "reading", "empty" or "failed" would be a
- * second owner of the same message. This section is the read's only mount.
+ * second owner of the same message.
  */
-function announcementFor(view: PortfolioView): string {
-  if (view.phase === "loading") {
-    return view.lines === null
-      ? "Reading the agent work"
-      : cardCountLabel(view.lines.length);
-  }
-  if (view.phase === "unreachable") {
-    return "Could not read the agent work";
-  }
-  if (view.lines === null || view.lines.length === 0) {
-    return "No cards to draw";
-  }
-  return cardCountLabel(view.lines.length);
-}
-
-function cardCountLabel(count: number): string {
-  return count === 1 ? "1 card" : `${count} cards`;
-}
-
 export function GrafoSection({ view }: { view: PortfolioView }) {
   const { lines } = view;
   const hasLines = lines !== null && lines.length > 0;
@@ -59,14 +46,6 @@ export function GrafoSection({ view }: { view: PortfolioView }) {
           next; the handoff edges are not drawn on this surface yet.
         </p>
       </div>
-
-      <p
-        aria-live="polite"
-        className="sr-only"
-        data-testid="tower-grafo-status-announcement"
-      >
-        {announcementFor(view)}
-      </p>
 
       {showingStale ? (
         <TowerStaleBanner
