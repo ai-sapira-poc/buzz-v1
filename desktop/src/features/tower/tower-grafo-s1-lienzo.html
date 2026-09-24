@@ -11,7 +11,7 @@
   Contratos que obedece:
     product/tower-grafo-s1-tarjetas.md (PRD-TOWER-F1-0006) sha256 b76175df
     product/tower-grafo-s1-procedencia.md (PRD-TOWER-F1-0007) sha256 7135e703
-    architecture/tower-grafo-s1-taxonomia-estados.md sha256 d454bf0f
+    desktop/src/features/tower/tower-grafo-s1-taxonomia.md sha256 d2129140
     tower/especificacion-seccion-armazon.md (R1-R7) sha256 0327b6fe
     reviews/verdict-tower-grafo-slice1.md (H1..H7) sha256 8697d3e8
   Reglas: sin aristas; NO se dibuja celda de bloqueo; modelo y coste ausentes =
@@ -148,7 +148,6 @@ h1 { font-size: var(--text-heading-1-size); line-height: var(--text-heading-1-le
 .mono { font-family: var(--font-mono); }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-component-gap); align-items: center; }
 .chip { display: inline-flex; align-items: center; padding: 0 var(--space-component-padding-x); border: 1px solid var(--color-border-default); border-radius: var(--radius-full); background: var(--color-surface-default); color: var(--color-text-secondary); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); font-weight: var(--font-weight-label); white-space: nowrap; }
-.chip-pedido { background: var(--color-surface-elevated); border-color: var(--color-border-default); color: var(--color-text-primary); }
 .chip-trabajando { background: var(--color-feedback-info-bg); border-color: var(--color-feedback-info); color: var(--color-feedback-info); }
 .chip-entregado { background: var(--color-feedback-success-bg); border-color: var(--color-feedback-success); color: var(--color-feedback-success); }
 .chip-cancelado { background: var(--color-feedback-warning-bg); border-color: var(--color-feedback-warning); color: var(--color-feedback-warning); }
@@ -213,7 +212,7 @@ code { font-family: var(--font-mono); font-size: var(--text-supporting-size); co
 
   <section class="sec" id="lienzo" aria-labelledby="lienzo-t">
     <h2 class="sec-title" id="lienzo-t">El lienzo &mdash; una tarjeta por encargo, en columnas por rol</h2>
-    <p class="sec-note">Cinco estados legibles y ninguno m&aacute;s: <strong>pedido</strong> (43001), <strong>trabajando</strong> (43002 aceptado y 43003 en progreso), <strong>entregado</strong> (43004), <strong>cancelado</strong> (43005) y <strong>fall&oacute;</strong> (43006). <strong>Pedido es estado propio y no se funde con trabajando</strong>: un encargo pedido y no arrancado no est&aacute; trabajando. Ning&uacute;n estado se comunica solo por color: cada chip lleva su palabra, y el color solo lo refuerza.</p>
+    <p class="sec-note">Cuatro estados dibujados y ninguno m&aacute;s: <strong>trabajando</strong> (43002 aceptado y 43003 en progreso), <strong>entregado</strong> (43004), <strong>cancelado</strong> (43005) y <strong>fall&oacute;</strong> (43006). El plegado admite un quinto estado, <span class="mono">requested</span> (43001), que <strong>no se dibuja</strong>: no tiene productor en vivo y por decisi&oacute;n del maestro se declara &laquo;sin se&ntilde;al&raquo;, nunca como cifra cero. Ning&uacute;n estado se comunica solo por color: cada chip lleva su palabra, y el color solo lo refuerza.</p>
     <div class="canvas">
 
       <div class="col">
@@ -268,26 +267,6 @@ code { font-family: var(--font-mono); font-size: var(--text-supporting-size); co
           <h3 class="col-name">producto</h3>
           <p class="col-meta">columna = rol, no profundidad</p>
         </div>
-
-        <article class="card" tabindex="0" aria-labelledby="p1-t">
-          <div class="card-top">
-            <span class="chip chip-pedido">pedido</span>
-            <span class="role">rol: producto</span>
-          </div>
-          <h4 class="card-title" id="p1-t">Decisiones de valor de la slice</h4>
-          <p class="job">tower-grafo-s1-producto &middot; &uacute;ltimo evento: 43001</p>
-          <p class="why">Por qu&eacute; est&aacute; aqu&iacute;: el encargo fue pedido (43001) y nadie lo ha arrancado. <strong>No est&aacute; trabajando</strong> y no est&aacute; atascado: espera a que se le asigne.</p>
-          <dl class="fields">
-            <div class="field">
-              <dt>Modelo</dt>
-              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">Un encargo pedido no ha abierto turno, as&iacute; que no hay span del que leerlo.</span></dd>
-            </div>
-            <div class="field">
-              <dt>Coste</dt>
-              <dd><span class="chip chip-nodisponible">no disponible</span><span class="cite">Sin contabilidad, y adem&aacute;s sin turno: no hay nada que sumar y no se suma nada.</span></dd>
-            </div>
-          </dl>
-        </article>
 
         <article class="card" tabindex="0" aria-labelledby="p2-t">
           <div class="card-top">
@@ -549,12 +528,6 @@ code { font-family: var(--font-mono); font-size: var(--text-supporting-size); co
           <td>exacto en color; el texto &laquo;fall&oacute;&raquo; sigue siendo obligatorio</td>
         </tr>
         <tr>
-          <td>Estado &laquo;pedido&raquo; (43001)</td>
-          <td><span class="mono">--color-surface-elevated</span> / <span class="mono">--color-border-default</span> / <span class="mono">--color-text-primary</span></td>
-          <td><span class="mono">#ffffff</span> / <span class="mono">#d8d4cf</span> / <span class="mono">#25231d</span></td>
-          <td><strong>inexacto</strong>: &laquo;pedido&raquo; es un estado observado y necesita chip s&oacute;lido, no apagado; se compone con tokens neutros porque el conjunto no tiene un token &laquo;estado neutro&raquo;</td>
-        </tr>
-        <tr>
           <td>&laquo;No disponible&raquo; (modelo y coste ausentes)</td>
           <td><span class="mono">--color-border-default</span> (borde discontinuo) / <span class="mono">--color-text-secondary</span></td>
           <td><span class="mono">#d8d4cf</span> / <span class="mono">#68615a</span></td>
@@ -641,7 +614,7 @@ code { font-family: var(--font-mono); font-size: var(--text-supporting-size); co
 
   <section class="sec" aria-labelledby="rat-t">
     <h2 class="sec-title" id="rat-t">Rationale en prosa</h2>
-    <p class="sec-note"><strong>Qui&eacute;n, cu&aacute;ndo y para qu&eacute;.</strong> El usuario es una sola persona: el director de ingenieros que supervisa diez agentes y decide d&oacute;nde poner la pr&oacute;xima hora. La tarea es nombrar, de un vistazo y sin abrir el canal de Buzz, en qu&eacute; estado est&aacute; cada encargo de su ventana &mdash; y distinguir <strong>pedido</strong> de <strong>trabajando</strong>, porque una cosa es trabajo vivo y la otra es trabajo esperando asignaci&oacute;n. El contexto es una pantalla de escritorio le&iacute;da en sesi&oacute;n de supervisi&oacute;n, no un panel de pared.</p>
+    <p class="sec-note"><strong>Qui&eacute;n, cu&aacute;ndo y para qu&eacute;.</strong> El usuario es una sola persona: el director de ingenieros que supervisa diez agentes y decide d&oacute;nde poner la pr&oacute;xima hora. La tarea es nombrar, de un vistazo y sin abrir el canal de Buzz, en qu&eacute; estado est&aacute; cada encargo de su ventana &mdash; y distinguir el <strong>trabajo vivo</strong> (<strong>trabajando</strong>) del <strong>trabajo cerrado</strong> (<strong>entregado</strong>, <strong>cancelado</strong> y <strong>fall&oacute;</strong>), porque lo primero sigue pidiendo atenci&oacute;n y lo segundo ya no. El contexto es una pantalla de escritorio le&iacute;da en sesi&oacute;n de supervisi&oacute;n, no un panel de pared.</p>
     <p class="sec-note"><strong>Por qu&eacute; columnas y por qu&eacute; <em>estas</em> columnas.</strong> El encargo ped&iacute;a columnas. La agrupaci&oacute;n por profundidad de dependencia no es construible <strong>en S1</strong>: la arista padre&rarr;hijo existe (kind 43007, lectura mergeada en PR #7, lector <span class="mono">towerHandoffEdges.ts</span>), pero S1 la difiere <strong>por alcance</strong> &mdash; las aristas son de S2. Agrupar por rol s&iacute; es sostenible &mdash; el rol viaja en cada evento &mdash; y adem&aacute;s responde a la pregunta operativa real, que es a qui&eacute;n se escala. Cada columna se rotula con el rol que de verdad la agrupa (<span class="mono">columna = rol, no profundidad</span>) y con la salvedad conocida: el mismo agente puede aparecer con dos cadenas de rol y entonces se parte en dos columnas; el lienzo no lo esconde ni lo funde en silencio.</p>
     <p class="sec-note"><strong>Jerarqu&iacute;a.</strong> Lo primero que se lee es el estado, porque es la decisi&oacute;n: el chip va arriba a la izquierda de cada tarjeta, con su palabra, y el color solo lo refuerza &mdash; ning&uacute;n estado se comunica solo por color, que es regla dura. Despu&eacute;s el nombre del encargo, sujeto de cualquier intervenci&oacute;n. Despu&eacute;s la raz&oacute;n del estado, en texto y etiquetada como parafraseo. Y al final, en una zona separada por una l&iacute;nea, los dos campos que hoy no se pueden afirmar: modelo y coste, los dos con &laquo;no disponible&raquo; y con su motivo. La separaci&oacute;n es deliberada: lo que no se sabe no compite en peso visual con lo que s&iacute; se sabe y, sin embargo, no desaparece, porque un campo ausente sin explicaci&oacute;n es indistinguible de un fallo de la pantalla.</p>
     <p class="sec-note"><strong>Vac&iacute;o, carga y error.</strong> Cada uno tiene su texto propio, visible y distinto, y ninguno se puede leer como otro. La carga dice que est&aacute; leyendo y proh&iacute;be cualquier cifra mientras lee; el vac&iacute;o dice que la fuente respondi&oacute; y no hab&iacute;a filas, y nombra la ventana en vez de mostrar un cero; el error dice que no se pudo leer, con su c&oacute;digo, y proh&iacute;be toda cifra y toda fecha para que no se lea como un dato actual. La raz&oacute;n es que el peor resultado no es una pantalla sin datos: es una pantalla sin datos que no dice cu&aacute;l de las tres cosas est&aacute; pasando. Hay adem&aacute;s un vac&iacute;o <strong>dentro</strong> del lienzo con datos: una columna de rol sin tarjetas dice que no hab&iacute;a filas para ese rol, en vez de quedarse muda.</p>

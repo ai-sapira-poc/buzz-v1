@@ -22,7 +22,9 @@ y `43008` (encargo en reposo), y **`43008` sí tiene productor**
 **no es «bloqueado» ni lo sustituye**: significa «el encargo está en reposo y el
 siguiente movimiento es del operador», y hoy no está dibujado en ninguna
 superficie. Por tanto la taxonomía correcta es: **cinco estados de ciclo de vida
-legibles de 43001-43006**; `bloqueado` declarado «sin señal» y **no dibujado**; y
+legibles de 43001-43006**, de los que S1 **dibuja cuatro** —`requested` es fila
+propia, «sin señal» y sin productor, y **no se dibuja** (§2, decisión del maestro
+2026-09-24, opción b)—; `bloqueado` declarado «sin señal» y **no dibujado**; y
 `43008` como estado **adyacente con productor pero sin superficie**, y **fuera de S1**
 por decisión del maestro (2026-09-24, reversible): va a la slice siguiente, y solo
 entra si su productor ha emitido al menos una vez **en vivo**.
@@ -80,21 +82,23 @@ relativa a `experiments/buzz-autonomy/` es `telemetry.py`, que no existe (falla
 
 ---
 
-## 2. Taxonomía: los cinco estados de tarjeta legibles de 43001-43006
+## 2. Taxonomía: los cinco estados que el plegado admite y los cuatro que S1 dibuja
 
 | # | Estado de tarjeta (`WorkState`) | Kind | Constante | Plegado | Mapeo `state → kind` (`JOB_EVENT_STATE`) | Semántica |
 |---|---|---|---|---|---|---|
-| 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:203`) | pedido, sin arrancar — **sin productor observado en vivo** (2026-09-24) |
+| 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:203`) | pedido, sin arrancar — **sin señal, sin productor, NO dibujada en S1** (decisión del maestro 2026-09-24, opción b) |
 | 2 | `running` (aceptado) | 43002 | `kinds.ts:27` | `towerJobFold.ts:34` | `started` (`operator_updates.py:204`) | aceptado |
 | 3 | `running` (progreso) | 43003 | `kinds.ts:28` | `towerJobFold.ts:35` | `running` (`operator_updates.py:205`) **y `blocked` (`:209`)** | trabajando / **contaminado** |
 | 4 | `done` | 43004 | `kinds.ts:29` | `towerJobFold.ts:36` | `done` (`operator_updates.py:206`) | entregado |
 | 5 | `cancelled` | 43005 | `kinds.ts:30` | `towerJobFold.ts:37` | `cancelled` (`operator_updates.py:207`) | detenido por decisión |
 | 6 | `failed` | 43006 | `kinds.ts:31` | `towerJobFold.ts:38` | `failed` (`operator_updates.py:208`) | no entregó |
 
-Dos kinds colapsan en `running` (aceptado y progreso): la tarjeta tiene **cinco**
-valores, no seis. Es una decisión del plegado, no un defecto. `requested` es fila
+Dos kinds colapsan en `running` (aceptado y progreso): **el plegado admite cinco
+valores**, no seis. Es una decisión del plegado, no un defecto. `requested` es fila
 propia y distinta de `running` — `towerJobFold.ts:33` mapea `43001 → "requested"`,
-no a `running`.
+no a `running` — y **S1 no la dibuja** (decisión (b), más abajo). **El plegado no
+cambia:** `43001` sigue plegándose a `requested`; lo que cambia es el **vocabulario
+dibujado**, no la máquina de estados.
 
 **La columna «Mapeo» no prueba que el estado exista.** Es el vocabulario
 (`operator_updates.py:202-210`), no un registro de llamadores: que la tabla sepa
@@ -110,23 +114,40 @@ llamadores reales en el piloto (`publish_update(` / `_publish_lifecycle(` en
 | `cancelled` (43005) | Sí | `launch_tower.py:297`, `:301`, `:396`; `supervisor.py:225`; `worker.py:207` |
 | `failed` (43006) | Sí | `launch_tower.py:297`, `:396`; `supervisor.py:225`; `worker.py:171`, `:207` |
 
-**Consecuencia, y decisión del maestro (2026-09-24).** Por la regla de esta
-taxonomía un estado sin productor se declara «sin señal». `requested` **no tiene
-ningún llamador que lo emita hoy**: con datos reales el operador no verá esa
+**Consecuencia, y decisión del maestro (2026-09-24): opción (b).** Por la regla de
+esta taxonomía un estado sin productor se declara «sin señal». `requested` **no
+tiene ningún llamador que lo emita hoy**: con datos reales el operador no verá esa
 etiqueta. El código la pinta porque el pliegue la mapea (`towerJobFold.ts:33`) y el
 fixture del spec la siembra — un fixture legítimo, no evidencia de productor.
 
-La fila **se queda** (opción (a)): sacarla exigiría escribir código nuevo para
-suprimir un estado que el pliegue de `main` ya entrega, y (a) es la única robusta al
-error — el día que se conecte un llamador `created`, la tarjeta se enciende sola. Una
-ausencia inocua se declara; no se amputa. Frase de contrato, **literal**:
+La decisión es **(b): `requested` (43001) queda «sin señal, sin productor, **no
+dibujada** en S1»**, coherente con `bloqueado` (§3): las dos son ausencias
+declaradas —no filas dibujadas— y ninguna de las dos se sustituye por un cero.
+Efecto sobre la slice: se retira la semilla del fixture que hoy pinta «Requested», y
+el vocabulario dibujado pasa de cinco etiquetas a **cuatro** (`running`, `done`,
+`cancelled`, `failed`). **El plegado no se toca** (§2 arriba), así que la decisión
+es reversible en una línea y el día que exista un llamador de `created` la etiqueta
+vuelve sola. Frase de contrato, **literal**:
 
 > `requested`: estado definido y plegado, sin productor observado en vivo a
-> 2026-09-24; se muestra si aparece, nunca como cifra cero.
+> 2026-09-24; **no dibujado en S1** (opción b). Se declara «sin señal»; si una línea
+> llegase con este estado, se nombra con texto propio y sin cifra — la misma regla
+> que el bloqueo, nunca una etiqueta de estado ni un cero.
 
-La distinción con `blocked` (§3) se mantiene, y es la que importa: `blocked` no se
-dibuja porque **llega** contaminado (el alias `blocked→progress` lo convierte en
-`running`); `requested` no se ejerce porque **no llega**.
+**Procedencia de la decisión.** Instrucción directa del maestro (2026-09-24) en la
+ronda de cierre posterior al veredicto
+(`reviews/verdict-tower-grafo-s1-taxonomia.md`, que dejaba (a) y (b) al maestro); no
+hay artefacto de decisión aparte. Aviso para quien consuma el informe hermano
+`architecture/tower-grafo-s1-taxonomia-r7.md`: registra la **opción (a)** para esta
+misma taxonomía. Las dos no pueden regir a la vez: donde `-r7` diga que `requested`
+se dibuja, esta revisión lo da por superado.
+
+La diferencia con `blocked` es de **causa, no de trato**: `blocked` no se dibuja
+porque **llega** contaminado (el alias `blocked→progress` lo convierte en `running`,
+§3); `requested` no se dibuja porque **no llega** (nadie emite `created`). Que las
+dos se traten igual es lo que hace que el lienzo no tenga que distinguir «no hay
+señal» de «la señal miente»: en los dos casos falta el dato, y el lienzo lo dice sin
+inventarlo.
 
 **Cadena de producción completa:**
 
@@ -300,16 +321,27 @@ no que la slice empiece.
 
 ## 8. Decisión y condiciones de revisión
 
-S1 dibuja **cinco estados** (`requested`, `running`, `done`, `cancelled`, `failed`),
-**agrupa por `role`** (las aristas padre→hijo son de S2 **por alcance**, no por falta de
+S1 dibuja **cuatro estados** (`running`, `done`, `cancelled`, `failed`); el plegado
+admite cinco y `requested` (43001) queda **sin señal, sin productor y no dibujada**
+por decisión del maestro (2026-09-24, **opción (b)**, reversible) — la misma
+declaración que `bloqueado`: ninguna de las dos se dibuja y ninguna se presenta como
+cero. **Agrupa por `role`** (las aristas padre→hijo son de S2 **por alcance**, no por falta de
 dato: `43007` está mergeada, PR #7 → `e2319442d`), **no dibuja bloqueo ni profundidad**,
 y declara **modelo y coste «no disponible»** (nunca `$0`, ningún total).
 
-El juego de cinco es el que el **pliegue admite**; de ellos, **`requested` no tiene
-llamador productor hoy** (§2). Decisión del maestro (2026-09-24): **(a) se queda**, con
-la frase de contrato de §2 — se muestra si aparece, nunca como cifra cero.
+El juego de cinco es el que el **plegado admite**; S1 dibuja cuatro. **`requested` no
+tiene llamador productor hoy** (§2), y por eso la decisión (b) —retirar su semilla y no
+dibujarla— deja el vocabulario dibujado alineado con lo que el piloto emite: cada
+etiqueta en pantalla corresponde a un productor que existe. La alternativa (a) pintaba
+un rótulo que, con datos reales, el operador no habría visto nunca; el coste de (b) es
+una línea del seed, y el día que aparezca un llamador de `created` se deshace igual de
+barato.
 
 Revisar esta taxonomía si: **(i)** se añade una kind o un tag de bloqueo;
+**(i-bis)** aparece el primer llamador de `created` — entonces `requested` deja de ser
+«sin señal», vuelve al vocabulario dibujado y la decisión (b) de §2 se revisa en el
+mismo movimiento (evidencia: un `git grep -n '"created"' experiments/buzz-autonomy`
+con un llamador distinto del mapeo y de la prosa de `operator_updates.py:388`);
 **(ii)** se corrige el alias `blocked→progress` (recordando los **dos** caminos);
 **(iii)** la slice siguiente integra `43008` — requisito de entrada **cumplido el
 2026-09-23** (§4); `43008` sigue fuera de S1.
@@ -318,18 +350,28 @@ Revisar esta taxonomía si: **(i)** se añade una kind o un tag de bloqueo;
 
 ## 9. Handoff
 
-- **A @coder:** usa `work.state` (cinco valores) — `requested` es fila propia, no
-  lo fundas con `running`. **No dibujes la celda `blocked`**; si necesitas nombrar
-  el bloqueo, es texto «sin señal», sin cifra. No rotules ninguna columna como
-  «profundidad». Modelo y coste: «no disponible».
-- **A @diseno:** cinco etiquetas de estado; el vacío/error/carga ya existen
+- **A @coder:** usa `work.state` — el plegado admite cinco valores, pero **S1 dibuja
+  cuatro etiquetas** (`running`, `done`, `cancelled`, `failed`). **`requested` (43001)
+  no se dibuja** (decisión (b) del maestro, §2): retira su semilla del fixture; si
+  alguna vez llega una línea con `work.state === "requested"`, se nombra «sin señal»
+  con texto propio y sin cifra — nunca como etiqueta de estado ni fundida con
+  `running`. **No dibujes la celda `blocked`**; si necesitas nombrar el bloqueo, es
+  texto «sin señal», sin cifra. No rotules ninguna columna como «profundidad». Modelo
+  y coste: «no disponible».
+- **A @diseno:** **cuatro** etiquetas de estado (`running`, `done`, `cancelled`,
+  `failed`); `requested` no se dibuja —si el lienzo necesita nombrarlo, es «sin
+  señal» con texto propio y sin cifra—; el vacío/error/carga ya existen
   (`TowerEmptyState`/`TowerErrorState`/`TowerLoadingState`); `43008` no está en
   ninguna superficie.
 - **A @revisor:** que la superficie renderizada no contenga «blocked», ni un `0`
-  de bloqueo, ni «profundidad», ni un nombre de modelo.
-- **Decisión cerrada (maestro, 2026-09-24): (a) se queda.** `requested` (43001), fila
-  1 de §2, **no tiene llamador productor**: se deja el rótulo, con la frase de contrato
-  de §2. La rendija del adaptador ya está cerrada por el coder (`a739cd06f`).
+  de bloqueo, ni la etiqueta de `requested`, ni «profundidad», ni un nombre de
+  modelo.
+- **Decisión cerrada (maestro, 2026-09-24): (b).** `requested` (43001), fila 1 de §2,
+  **no tiene llamador productor**: se declara «sin señal, sin productor, no dibujada
+  en S1», coherente con `bloqueado`. Se retira la semilla del spec; **el plegado no
+  se toca**. Reversible; se revisa si aparece un llamador de `created` (§8,
+  condición i-bis). La rendija del adaptador ya está cerrada por el coder
+  (`a739cd06f`).
 - **Decisión cerrada (maestro):** `43008` (reposo) **no entra en S1**; va a la slice
   siguiente, cuyo requisito de entrada —que su productor haya emitido en vivo— quedó
   **cumplido el 2026-09-23** (§4). S1 no dibuja bloqueo: se declara «sin señal», sin
