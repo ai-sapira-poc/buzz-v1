@@ -65,24 +65,48 @@ function snapshot(overrides) {
   };
 }
 
-function render(view) {
-  return renderToStaticMarkup(React.createElement(GrafoSection, { view }));
+function render(view, handovers = null) {
+  return renderToStaticMarkup(
+    React.createElement(GrafoSection, { view, handovers }),
+  );
 }
 
 function countOf(html, testId) {
   return (html.match(new RegExp(`data-testid="${testId}"`, "g")) ?? []).length;
 }
 
-function columnTitles(html) {
+function layerTitles(html) {
   const titles = [];
-  const pattern = /data-testid="tower-grafo-column-title"[^>]*>([^<]+)<\/h3>/g;
+  const pattern = /data-testid="tower-grafo-layer-title"[^>]*>([^<]+)<\/h3>/g;
   for (const match of html.matchAll(pattern)) {
     titles.push(match[1]);
   }
   return titles;
 }
 
-test("real agent work renders as one card per job, grouped by role", async () => {
+function handoverView(rows) {
+  return {
+    phase: "ready",
+    lines: rows,
+    lastSuccessAt: "2026-09-23T20:00:00.000Z",
+    failure: null,
+    refreshing: false,
+    retry: () => {},
+  };
+}
+
+function handoffRow({ parent, child, outcome = "done", id = null }) {
+  return {
+    id: id ?? `${parent}->${child}`,
+    sender: { jobId: parent, name: parent },
+    child: { jobId: child, name: child },
+    parentOutcome: outcome,
+    transferredAt: "2026-09-23T19:00:00.000Z",
+    thread: null,
+  };
+}
+
+test("real agent work renders as one card per job in the depth layout", async () => {
   const source = createTowerBuzzSource(
     async () => [
       jobEvent({ kind: 43002, job: "buzz-autonomy", role: "builder", at: 100 }),
@@ -102,23 +126,27 @@ test("real agent work renders as one card per job, grouped by role", async () =>
   const html = render(derivePortfolioView(snapshot({ data: lines }), () => {}));
 
   assert.equal(countOf(html, "tower-node"), 3);
-  assert.deepEqual(columnTitles(html).sort(), ["builder", "reviewer"]);
+  // No handoff edges in this read, so every node is a window root: one layer.
+  assert.deepEqual(layerTitles(html), ["Depth 0"]);
   assert.doesNotMatch(html, /tower-empty-state/);
   assert.doesNotMatch(html, /tower-error-state/);
   assert.match(html, /Running/);
-  // `requested` (43001) has no caller emitting it today, so S1 does not draw it
-  // as a state: the seeded line is a fixture, not a producer, and its chip
-  // names the absence instead (taxonomy §9). `Requested` is exactly what must
-  // not render — reverting the removal turns this red.
+  // `requested` (43001) has no caller emitting it today, so the canvas does not
+  // draw it as a state: the seeded line is a fixture, not a producer, and its
+  // chip names the absence instead (taxonomy §9). `Requested` is exactly what
+  // must not render — reverting the removal turns this red.
   assert.doesNotMatch(html, /Requested/);
   assert.match(html, /data-testid="tower-node-state">No signal</);
   // Nor does an unproduced state borrow a produced state's colour.
   assert.doesNotMatch(html, /border-l-sky-500/);
   // The producer's own line rides the card; nothing is invented for the rest.
   assert.match(html, /drawing cards/);
+  // No edge read was supplied, so no edge is drawn and the canvas says so.
+  assert.equal(countOf(html, "tower-grafo-edge"), 0);
+  assert.match(html, /tower-grafo-edge-note/);
 });
 
-test("the grouping is the role and says depth is not drawn", () => {
+test("the grouping is depth in this window, and says so", () => {
   const html = render(
     derivePortfolioView(
       snapshot({ data: [line({ job: "j1", role: "builder" })] }),
@@ -127,14 +155,76 @@ test("the grouping is the role and says depth is not drawn", () => {
   );
 
   assert.match(html, /tower-grafo-grouping-note/);
-  assert.match(html, /not the depth of the work/);
-  assert.match(html, /handoff edges are not drawn on this surface yet/);
-  // No connector of any kind: the canvas is a grouping, not a graph layout.
-  assert.equal(countOf(html, "tower-grafo-edge"), 0);
-  assert.doesNotMatch(html, /<svg/);
+  assert.match(html, /depth in this window/);
+  assert.match(html, /not an absolute hierarchy/);
 });
 
-test("a line with no role is grouped, never dropped", () => {
+test("a handoff edge draws one arrow from the parent job to the child", () => {
+  const html = render(
+    derivePortfolioView(
+      snapshot({
+        data: [
+          line({ job: "parent", role: "builder" }),
+          line({ job: "child", role: "reviewer" }),
+        ],
+      }),
+      () => {},
+    ),
+    handoverView([handoffRow({ parent: "parent", child: "child" })]),
+  );
+
+  assert.equal(countOf(html, "tower-grafo-edge"), 1);
+  // Parent is at depth 0, child at depth 1: the path is drawn parent first.
+  assert.match(html, /data-parent="parent"/);
+  assert.match(html, /data-child="child"/);
+  assert.match(html, /data-x1="256"/);
+  assert.match(html, /data-x2="352"/);
+  assert.deepEqual(layerTitles(html), ["Depth 0", "Depth 1"]);
+  // Every drawn edge has both endpoints, so no edge note is needed.
+  assert.doesNotMatch(html, /tower-grafo-edge-note/);
+});
+
+test("an edge endpoint outside the window is an orphan card, never dropped", () => {
+  const html = render(
+    derivePortfolioView(
+      snapshot({ data: [line({ job: "child", role: "reviewer" })] }),
+      () => {},
+    ),
+    handoverView([handoffRow({ parent: "absent-parent", child: "child" })]),
+  );
+
+  // The window has one line; the edge names one more node, so two cards.
+  assert.equal(countOf(html, "tower-node"), 2);
+  assert.equal(countOf(html, "tower-grafo-edge"), 1);
+  assert.match(html, /data-orphan="true"/);
+  assert.match(html, /absent-parent/);
+});
+
+test("a failed edge read draws no edge and says it failed, not 'no handoffs'", () => {
+  const html = render(
+    derivePortfolioView(
+      snapshot({ data: [line({ job: "parent", role: "builder" })] }),
+      () => {},
+    ),
+    {
+      phase: "unreachable",
+      lines: null,
+      lastSuccessAt: null,
+      failure: { code: "adapter_unavailable", message: "no relay" },
+      refreshing: false,
+      retry: () => {},
+    },
+  );
+
+  assert.equal(countOf(html, "tower-grafo-edge"), 0);
+  const note = html.match(
+    /data-testid="tower-grafo-edge-note"[^>]*>([^<]+)</,
+  )?.[1];
+  assert.match(note ?? "", /edge read failed/);
+  assert.doesNotMatch(note ?? "", /No handoff edge in this window/);
+});
+
+test("a line with no role is drawn, never dropped", () => {
   const html = render(
     derivePortfolioView(
       snapshot({
@@ -148,7 +238,7 @@ test("a line with no role is grouped, never dropped", () => {
   );
 
   assert.equal(countOf(html, "tower-node"), 2);
-  assert.deepEqual(columnTitles(html).sort(), ["Unnamed agent", "builder"]);
+  assert.deepEqual(layerTitles(html), ["Depth 0"]);
 });
 
 test("model and cost with no producer read as absent, never as zero", () => {

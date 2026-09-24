@@ -26,7 +26,7 @@ export function TowerScreen() {
           description="Window: session (D-1). What is happening, how it is going, and what needs you."
           title="Tower Control"
         />
-        <GrafoSection view={view} />
+        <GrafoSection handovers={handovers} view={view} />
         <PanelSection handovers={handovers} portfolio={view} />
         <HandoverSection view={handovers} />
       </div>
