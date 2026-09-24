@@ -319,8 +319,19 @@ no que la slice empiece.
   lo que el puerto prohíbe. Ahora ambas lecturas exigen un array (`Array.isArray`)
   y lanzan; el `catch` existente lo traduce al mismo
   `TowerSourceError("adapter_unavailable", ...)` y la superficie pinta su rama de
-  error. Hallazgo del revisor; arreglo del coder, con test que falla al quitar la
-  guarda.
+  error. Hallazgo del revisor; arreglo del coder.
+
+  **Precisión del test, medida por el revisor y no reproducida por mí (2026-09-24).**
+  La frase que este documento llevaba —«con test que falla al quitar la guarda»— es
+  imprecisa y queda retirada: neutralizar la guarda (`if (!Array.isArray(events))` →
+  `if (false) {`) **no** pone rojo el test de nodo (siguió 12/12 verde), porque el
+  `throw` aguas abajo ya rechaza y la guarda es **redundante con él**. Lo que sí lo
+  pone rojo (12→11/1) es reintroducir `events ?? []`. Es decir: el test ata el
+  **comportamiento** («una fuente que resuelve sin lista está muerta, no vacía»),
+  no la guarda. El e2e **no** vigila ese guard —entra por la caché de React Query y
+  nunca atraviesa el adaptador—, así que un `?? []` futuro volvería a pintar «no hay
+  trabajo» sobre una fuente muerta con el e2e en verde; atarlo es deuda nombrada de
+  S2. El revisor midió la mutación con su comando y su salida; yo no la ejecuté.
 
 ---
 
