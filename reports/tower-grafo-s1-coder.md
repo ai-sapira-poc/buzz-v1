@@ -48,11 +48,18 @@ cambio más grande que el contrato de mi stage.
 `364da5ef3` — «docs(tower): pin the approved S1 prototype beside the taxonomy it
 implements» (rebasado a `e9f0b25ab` sobre el tip `c41af27d3`):
 
-- `desktop/src/features/tower/tower-grafo-s1-lienzo.html`, **byte por byte** el
-  artefacto aprobado (`artifacts/design/tower-grafo-s1-lienzo.html`), sha256
-  `e9970382f2b0355a10737d657fa23d31b5d2af154f32786f726db8c31a2d3afb` en los dos
-  ficheros (comprobado con `shasum -a 256` sobre ambos). Lleva dentro la tabla de
-  mapeo de tokens, que es la mitad del artefacto que el PR no podía mostrar.
+- `desktop/src/features/tower/tower-grafo-s1-lienzo.html`, la copia versionada
+  del artefacto aprobado. **Errata de identidad.** Esta línea decía «**byte por
+  byte** el artefacto aprobado … sha256 `e9970382…` en los dos ficheros», y el
+  árbol que viaja no lo sostiene: lo que viaja en esta ruta es sha256
+  `a91fb3ccd683e9d37158b0e4724a0ef17dd2be849bca519abe0a81b3b8e5db88` (medido con
+  `git cat-file blob <head>:<ruta> | shasum -a 256`), y el almacén del piloto,
+  `artifacts/design/tower-grafo-s1-lienzo.html` (fuera del repo, se cita como
+  procedencia), sigue en
+  `e9970382f2b0355a10737d657fa23d31b5d2af154f32786f726db8c31a2d3afb`. Los dos
+  ficheros **no** son idénticos, así que cito cada sha con su ruta y no afirmo
+  igualdad entre el árbol y el almacén. Lleva dentro la tabla de mapeo de
+  tokens, que es la mitad del artefacto que el PR no podía mostrar.
 - `desktop/biome.json`: **una línea de exclusión para ese fichero**. Es el único
   cambio mío **fuera del ámbito de escritura declarado**
   (`desktop/src/features/tower/**`, `desktop/src/shared/api/tower*`,

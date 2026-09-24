@@ -1,11 +1,13 @@
 # Tower Grafo S1 — cierre de la columna `desktop/src` de la tabla de tokens
 
-**El entregable no vive en el repo: `design/` es el almacén del piloto**
-(`artifacts/design/tower-grafo-s1-tabla-tokens.md`). Lo he cerrado ahí, que es
-donde está el fichero y donde lo dejó @diseno; lo que entra en la rama
-`agent/tower-grafo-s1` (PR #11) es este informe, en `reports/`. Si el maestro
-quiere la nota dentro del PR, es un `git add` de un fichero — no he creado un
-`design/` de primer nivel en el repo sin que nadie lo decida.
+**Errata de identidad (re-apunte de la cita).** Esta nota abría diciendo que
+«**el entregable no vive en el repo: `design/` es el almacén del piloto**»
+(`artifacts/design/tower-grafo-s1-tabla-tokens.md`). Dejó de ser cierto al
+aterrizar la tabla en el repo: hoy `design/tower-grafo-s1-tabla-tokens.md` **sí
+vive en el repo** (commit `6b856c2ca`, dentro de PR #11) y es lo que viaja. El
+almacén del piloto sigue ahí y se cita como **procedencia**, con su sha propio,
+sin afirmar igualdad con el árbol. Lo demás de aquel párrafo describe mi commit
+`45277235e`, no el tip de ahora.
 
 **Resultado:** la última columna ya no dice «no verificado» en ninguna de las 28
 filas. Las 9 clases del handoff quedan resueltas: **5 a `fichero:línea` de
@@ -427,8 +429,9 @@ $ python3 -c "import colorsys; print(..."   # hsl declarado -> sRGB
 
 | Qué | Dónde | Identidad |
 |---|---|---|
-| Tabla de tokens cerrada | `artifacts/design/tower-grafo-s1-tabla-tokens.md` | sha256 `56053d500aa80e716d8d5ccbba5567496614a0f3931ae4d63480a7d5b17cc402` |
-| Este informe | `reports/tower-grafo-s1-tokens-desktop.md` (repo, rama `agent/tower-grafo-s1`) y `artifacts/reports/tower-grafo-s1-tokens-desktop.md` | igual contenido |
+| Tabla de tokens cerrada — **artefacto que viaja** | `design/tower-grafo-s1-tabla-tokens.md` (repo) | sha256 `76673ae6a97dd7afde60109dcb77943576bd9cc0eeb203c636ee49c7cac08f08` |
+| Tabla de tokens — **procedencia en el almacén** (fuera del repo) | `artifacts/design/tower-grafo-s1-tabla-tokens.md` | sha256 `56053d500aa80e716d8d5ccbba5567496614a0f3931ae4d63480a7d5b17cc402`, que **no** es el del árbol |
+| Este informe | `reports/tower-grafo-s1-tokens-desktop.md` (repo) — esta revisión lleva las erratas de identidad — y `artifacts/reports/tower-grafo-s1-tokens-desktop.md` (almacén) | **ya no** «igual contenido»: el almacén quedó en sha256 `efd00ae280693e618a8429e26f4f0b092d4aaabb75ab167d825cb6924aa4a780`, que es la copia del repo **antes** de estas erratas |
 | Rama / PR | `agent/tower-grafo-s1`, PR #11 `https://github.com/ai-sapira-poc/buzz-v1/pull/11` | commits de documentación, fast-forward sobre `89b85ab3b`; sin fuerza. Mi primer commit es `45277235e` |
 
 - **Al revisor:** los `fichero:línea` son de `main` = `ab63b0129`, no del tip del
@@ -452,10 +455,10 @@ $ python3 -c "import colorsys; print(..."   # hsl declarado -> sRGB
   se disparan por el diff de la rama contra `origin/main`, no por mi fichero: mi
   cambio es un `.md` en `reports/`, que no está en ninguna raíz gobernada por el
   ratchet de tamaño.
-- **Si el maestro quiere la nota en el PR:** hoy la tabla vive solo en el almacén
-  del piloto, como todas las notas de diseño anteriores. Moverla crea un
-  `design/` de primer nivel en el repo que hoy no existe; lo dejo a decisión
-  suya y no lo he hecho.
+- **La nota dentro del PR:** cuando escribí esto, la tabla vivía solo en el
+  almacén del piloto y moverla habría creado un `design/` de primer nivel en el
+  repo. Hoy ese `design/` ya existe (`design/tower-grafo-s1-tabla-tokens.md`,
+  desde `6b856c2ca`, PR #11) y es lo que viaja.
 
 **Confianza:** alta en cada `fichero:línea` de §2 (comando y salida copiados de
 `main`); alta en los negativos de §3 (grep acotado, salida vacía); **media** en
