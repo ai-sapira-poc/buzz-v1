@@ -74,7 +74,7 @@ relativa a `experiments/buzz-autonomy/` es `telemetry.py`, que no existe (falla
 
 ## 2. Taxonomía: los cinco estados de tarjeta legibles de 43001-43006
 
-| # | Estado de tarjeta (`WorkState`) | Kind | Constante | Plegado | Productor del evento (state → kind) | Semántica |
+| # | Estado de tarjeta (`WorkState`) | Kind | Constante | Plegado | Mapeo `state → kind` (`JOB_EVENT_STATE`) | Semántica |
 |---|---|---|---|---|---|---|
 | 1 | `requested` | 43001 | `desktop/src/shared/constants/kinds.ts:26` | `desktop/src/shared/api/towerJobFold.ts:33` | `created` (`operator_updates.py:203`) | pedido, sin arrancar |
 | 2 | `running` (aceptado) | 43002 | `kinds.ts:27` | `towerJobFold.ts:34` | `started` (`operator_updates.py:204`) | aceptado |
@@ -88,6 +88,28 @@ valores, no seis. Es una decisión del plegado, no un defecto. `requested` es fi
 propia y distinta de `running` — `towerJobFold.ts:33` mapea `43001 → "requested"`,
 no a `running`.
 
+**La columna «Mapeo» no prueba que el estado exista.** Es el vocabulario
+(`operator_updates.py:202-210`), no un registro de llamadores: que la tabla sepa
+traducir `created` a `requested` no significa que algo emita `created`. Repaso de
+llamadores reales en el piloto (`publish_update(` / `_publish_lifecycle(` en
+`experiments/buzz-autonomy/`, base `ab63b0129`):
+
+| Estado de tarjeta | ¿Llamador hoy? | Llamadores observados |
+|---|---|---|
+| `requested` (43001) | **No** | ningún llamador pasa `"created"`; el único literal `"created"` es el propio mapeo (`operator_updates.py:203`) y la prosa de `publish_waiting` (`:388`). `mandate.py:62` pasa `"summary"`, ausente del mapeo → `publish_job_event` devuelve `False` y **no** emite kind |
+| `running` (43002/43003) | Sí | latido: `launch_tower.py:244-248` y `supervisor.py:101-103` (`"running"`, no pasan por `_publish_lifecycle`); `started`: `launch_tower.py:287`, `:348`, `supervisor.py:155`, `worker.py:115`; alias `blocked`: `launch_tower.py:418`, `operator_updates.py:454-457` |
+| `done` (43004) | Sí | `launch_tower.py:303`, `:335`, `:386`; `supervisor.py:196`; `worker.py:192` |
+| `cancelled` (43005) | Sí | `launch_tower.py:297`, `:301`, `:396`; `supervisor.py:225`; `worker.py:207` |
+| `failed` (43006) | Sí | `launch_tower.py:297`, `:396`; `supervisor.py:225`; `worker.py:171`, `:207` |
+
+**Consecuencia, y decisión que no tomo yo.** Por la regla de esta taxonomía un
+estado sin productor se declara «sin señal». `requested` **no tiene ningún
+llamador que lo emita hoy**: con datos reales el operador no verá esa etiqueta.
+El código la pinta porque el pliegue la mapea (`towerJobFold.ts:33`) y el fixture
+del spec la siembra — un fixture legítimo, no evidencia de productor. Elección
+del `@Maestro`: **(a)** dejar el rótulo listo (aparece solo el día que exista
+productor) o **(b)** sacarlo de S1 (una línea del seed).
+
 **Cadena de producción completa:**
 
 | Eslabón | Dónde |
@@ -96,7 +118,9 @@ no a `running`.
 | El piloto mapea su vocabulario al del CLI | `operator_updates.py:202-210` (`JOB_EVENT_STATE`) |
 | El piloto emite el evento | `publish_job_event` `operator_updates.py:213-247` (args en `:230-232`) |
 | Quién lo llama | `publish_update` `operator_updates.py:406-433` (llamada en `:422`) |
-| Emisores de ciclo de vida | `_publish_lifecycle` `control_plane/launch_tower.py:190-221`; llamadas en `:287` (`started`), `:297` (`failed`/`cancelled`), `:301` (`cancelled`), `:303` (`done`), `:335` (`done`), `:348` (`started`), `:386` (`done`), `:396` (`failed`/`cancelled`), `:418` (`blocked`) |
+| Emisores vía `_publish_lifecycle` | `control_plane/launch_tower.py:190-221`; llamadas en `:287` (`started`), `:297` (`failed`/`cancelled`), `:301` (`cancelled`), `:303` (`done`), `:335` (`done`), `:348` (`started`), `:386` (`done`), `:396` (`failed`/`cancelled`), `:418` (`blocked`) |
+| Emisor de `running` (latido) | `launch_tower.py:244-248` — `publish_update(..., "running", ...)` directo, **no** por `_publish_lifecycle`; mismo latido en `supervisor.py:101-103` |
+| Emisores directos restantes | `supervisor.py:155` (`started`), `:196` (`done`), `:225` (`cancelled`/`failed`); `worker.py:115` (`started`), `:171` (`failed`), `:192` (`done`), `:207` (`cancelled`/`failed`) |
 
 **Regla de desempate (afecta a qué estado muestra una tarjeta):** el plegado elige
 el evento **más nuevo** por `created_at`, y a igualdad de segundo desempata por
@@ -195,12 +219,14 @@ No confundirlo con la celda de bloqueo: son cosas distintas.
 - **El puerto rechaza en fallo, nunca `[]`:** `TowerSource.ts:9-13` y `:15-21`;
   el adaptador lanza `TowerSourceError("adapter_unavailable", ...)` en
   `towerBuzzSource.ts:144-176`.
-- **Rendija residual (hallazgo del revisor):** `towerBuzzSource.ts:148` y `:165`
-  hacen `events ?? []`. El `catch` cubre el **rechazo**, pero una fuente que
-  **resuelva** `null`/`undefined` se convierte en `[]` y pinta «no hay trabajo»
-  sobre una fuente muerta — justo lo que el puerto prohíbe. La superficie nueva
-  no debe reabrirla: el adaptador debería rechazar si el resultado no es un array
-  (`Array.isArray`), no convertirlo en vacío.
+- **Rendija residual — cerrada en esta rama (`a739cd06f`):** `towerBuzzSource.ts`
+  hacía `events ?? []` (`:148`, `:165`), que convertía una fuente que **resolvía**
+  `null`/`undefined` en `[]` y pintaba «no hay trabajo» sobre una fuente muerta —
+  lo que el puerto prohíbe. Ahora ambas lecturas exigen un array (`Array.isArray`)
+  y lanzan; el `catch` existente lo traduce al mismo
+  `TowerSourceError("adapter_unavailable", ...)` y la superficie pinta su rama de
+  error. Hallazgo del revisor; arreglo del coder, con test que falla al quitar la
+  guarda.
 
 ---
 
@@ -227,6 +253,10 @@ S1 dibuja **cinco estados** (`requested`, `running`, `done`, `cancelled`, `faile
 dato: `43007` está mergeada, PR #7 → `e2319442d`), **no dibuja bloqueo ni profundidad**,
 y declara **modelo y coste «no disponible»** (nunca `$0`, ningún total).
 
+El juego de cinco es el que el **pliegue admite**; de ellos, **`requested` no tiene
+llamador productor hoy** (§2), así que verlo en pantalla con datos reales depende de
+la decisión del maestro entre dejarlo listo (a) o sacarlo de S1 (b).
+
 Revisar esta taxonomía si: **(i)** se añade una kind o un tag de bloqueo;
 **(ii)** se corrige el alias `blocked→progress` (recordando los **dos** caminos);
 **(iii)** la slice siguiente integra `43008` — requisito de entrada: que su productor
@@ -245,6 +275,10 @@ haya emitido al menos una vez en vivo.
   ninguna superficie.
 - **A @revisor:** que la superficie renderizada no contenga «blocked», ni un `0`
   de bloqueo, ni «profundidad», ni un nombre de modelo.
+- **Decisión abierta (maestro):** `requested` (43001), fila 1 de §2, **no tiene
+  llamador productor** — (a) dejar el rótulo o (b) sacarlo de S1 (una línea del
+  seed del spec). No la toma el arquitecto. La rendija del adaptador ya está
+  cerrada por el coder (`a739cd06f`).
 - **Decisión cerrada (maestro):** `43008` (reposo) **no entra en S1**; va a la slice
   siguiente con el requisito de que su productor haya emitido en vivo. S1 no dibuja
   bloqueo: se declara «sin señal», sin cifra.
