@@ -263,6 +263,57 @@ test("a handoff edge read by the adapter is drawn parent → child, on its cards
   assert.equal(countOf(html, "tower-grafo-edge-layer"), 1);
 });
 
+test("a chain of edges keeps every link's direction", async () => {
+  // One edge binds the direction of a single handoff; the chain binds it link
+  // by link, so a fold that derives the first link correctly and mis-derives
+  // the rest fails on the pair, not on the count. Three jobs, three depths.
+  const lifecycle = [
+    lifecycleEvent({
+      kind: 43002,
+      job: "tower-architect",
+      role: "architect",
+      at: 90,
+    }),
+    lifecycleEvent({ kind: 43002, job: "tower-coder", role: "coder", at: 95 }),
+    lifecycleEvent({
+      kind: 43002,
+      job: "tower-reviewer",
+      role: "reviewer",
+      at: 97,
+    }),
+  ];
+  const source = sourceOver(lifecycle, [
+    ...lifecycle,
+    handoffEvent({
+      parent: "tower-architect",
+      child: "tower-coder",
+      at: 100,
+    }),
+    handoffEvent({
+      parent: "tower-coder",
+      child: "tower-reviewer",
+      at: 101,
+    }),
+  ]);
+
+  const html = await renderSource(source);
+
+  // Both links are drawn, each naming its own endpoints — a fold that collapsed
+  // or reversed a link fails on the pair, not just on the count.
+  const pairs = arrows(html)
+    .map((edge) => [edge["data-parent"], edge["data-child"]])
+    .sort();
+  assert.deepEqual(pairs, [
+    ["tower-architect", "tower-coder"],
+    ["tower-coder", "tower-reviewer"],
+  ]);
+  // The chain is three depths, so no two links collapsed onto one layer.
+  assert.deepEqual(
+    layers(html).map((layer) => layer.title),
+    ["Depth 0", "Depth 1", "Depth 2"],
+  );
+});
+
 test("an endpoint outside the window is drawn in the band, with the role the edge read carried", async () => {
   // The child has no line in the portfolio window — but the edge read did carry
   // its role, in the child's own lifecycle event. That is how the adapter names
