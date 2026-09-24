@@ -139,6 +139,33 @@ test("a missing owner identity is a failed read, not an owner with no work", asy
   );
 });
 
+test("a source that resolves no list is dead, not empty", async () => {
+  // `?? []` used to turn a missing list into "no work yet" — the one meaning
+  // the port reserves for a successful read.
+  const portfolio = createTowerBuzzSource(
+    async () => null,
+    async () => OWNER,
+  );
+  const settled = await portfolio.getPortfolio().then(
+    (value) => ({ value }),
+    (error) => ({ error }),
+  );
+  assert.equal(settled.value, undefined, "a missing list must not resolve");
+  assert.ok(settled.error instanceof TowerSourceError);
+  assert.equal(settled.error.code, "adapter_unavailable");
+
+  const handover = createTowerBuzzSource(
+    async () => [],
+    async () => OWNER,
+    async () => undefined,
+  );
+  await assert.rejects(
+    () => handover.getHandovers(),
+    (error) =>
+      error instanceof TowerSourceError && error.code === "adapter_unavailable",
+  );
+});
+
 test("the relay filter names its kinds explicitly and scopes to the owner", async () => {
   // Omitting `kinds` is refused by the relay's p-gate (403); the scoping tag is
   // what makes this the owner's portfolio rather than the whole relay's.
