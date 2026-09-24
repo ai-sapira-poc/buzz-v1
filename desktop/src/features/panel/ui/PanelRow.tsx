@@ -6,6 +6,7 @@ import type { HandoverParentOutcome } from "@/features/tower/domain/handover";
 import type { WorkState } from "@/features/tower/domain/portfolio";
 import type { PanelRow } from "@/features/panel/domain/panel";
 import { formatRecency } from "@/features/tower/ui/portfolioFormat";
+import { clockUtc } from "./panelClock";
 import { PANEL_GRID } from "./panelLayout";
 
 /**
@@ -30,21 +31,6 @@ const PARENT_OUTCOME_TEXT: Record<HandoverParentOutcome, string> = {
 };
 
 const UNREADABLE_HANDOVERS = "El registro de relevos no se pudo leer.";
-
-/**
- * The last good read's instant as the UTC clock design §2.4 fixes for the cell
- * («de las [HH:MM] UTC») — a clock, not a count, and not the raw ISO the section
- * notice carries. An instant the platform cannot parse names no hour rather
- * than inventing one.
- */
-function clockUtc(iso: string | null): string | null {
-  if (iso === null) return null;
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return null;
-  const hour = String(at.getUTCHours()).padStart(2, "0");
-  const minute = String(at.getUTCMinutes()).padStart(2, "0");
-  return `${hour}:${minute}`;
-}
 
 /**
  * The cell's provenance line once the section's read has failed (design §2.4,

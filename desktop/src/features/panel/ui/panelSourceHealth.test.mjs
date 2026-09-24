@@ -236,10 +236,11 @@ test("a rejection after a good read keeps the rows and names the instant", async
   // The list is not unmounted under a fall (D-9).
   assert.match(html, /escribiendo el slice/);
   assert.match(html, /data-testid="panel-list"/);
-  // The notice says the rows are old, and says *when* the good read happened.
+  // The notice says the rows are old, and says *when* the good read happened
+  // — as the same HH:MM UTC the row's provenance line prints (F3).
   assert.match(html, /La lectura de encargos falló/);
   assert.match(html, /datos viejos, no actuales/);
-  assert.match(html, /2026-09-23T09:40:00\.000Z/);
+  assert.match(html, /Se muestra la última lectura buena, de 09:40 UTC\./);
   assert.match(html, /adapter_unavailable/);
   assert.doesNotMatch(html, /data-testid="panel-error-state"/);
 });
@@ -402,4 +403,43 @@ test("neither fall notice is dismissible, and each carries exactly one retry", a
     assert.doesNotMatch(html, /aria-label="[^"]*[Cc]errar/);
     assert.doesNotMatch(html, /aria-label="[^"]*[Dd]escartar/);
   }
+});
+
+test("F3: the fall notice names the hour as HH:MM UTC in both of its branches", async () => {
+  // One hour, one format. The row's provenance line prints `HH:MM` UTC by
+  // design §2.4; the notice printed the raw ISO (`2026-09-23T09:40:00.000Z`),
+  // so one screen read the same instant two ways (deliberately rejected
+  // mutation: hand `lastSuccessAt` to the notice unformatted, and this test and
+  // the notice's own test above go red while the rest of the glob stays green).
+  const readAt = Date.parse("2026-09-23T09:40:00.000Z");
+  const rawIso = /2026-09-23T09:40:00\.000Z/;
+
+  // Branch with rows: the preserved snapshot held one encargo.
+  const good = await viewFrom(
+    sourceOver([jobEvent({ kind: KIND_JOB_ACCEPTED, job: "job-a", at: 100 })]),
+  );
+  const withRows = render(
+    await viewFrom(failingSource(new Error("timeout")), {
+      previous: good.lines,
+      dataUpdatedAt: readAt,
+    }),
+  );
+  assert.match(withRows, /Se muestra la última lectura buena, de 09:40 UTC\./);
+  // The row's own `Instante` cell carries the event's raw ISO on purpose; the
+  // read's instant is not the event's, so it appears nowhere as the ISO.
+  assert.doesNotMatch(withRows, rawIso);
+
+  // Branch whose last good read answered with nothing: same hour, same format.
+  const empty = await viewFrom(sourceOver([]));
+  const wasEmpty = render(
+    await viewFrom(failingSource(new Error("timeout")), {
+      previous: empty.lines,
+      dataUpdatedAt: readAt,
+    }),
+  );
+  assert.match(
+    wasEmpty,
+    /La última lectura buena, de 09:40 UTC, no encontró encargos\./,
+  );
+  assert.doesNotMatch(wasEmpty, rawIso);
 });
