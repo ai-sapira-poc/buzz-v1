@@ -145,7 +145,13 @@ export function createTowerBuzzSource(
       try {
         const ownerPubkey = await resolveOwner();
         const events = await fetchJobEvents(ownerPubkey);
-        return mergeWaitingIntoPortfolio(events ?? []);
+        if (!Array.isArray(events)) {
+          // A source that resolves a missing list is a dead source, not an
+          // owner with no work: `?? []` would let it borrow the successful
+          // empty read's meaning, which the port forbids.
+          throw new Error("The relay returned no event list.");
+        }
+        return mergeWaitingIntoPortfolio(events);
       } catch (cause) {
         // Fail closed: a read failure must reject so the section renders the
         // error branch. Resolving to `[]` here would paint "no work yet" over
@@ -162,7 +168,12 @@ export function createTowerBuzzSource(
       try {
         const ownerPubkey = await resolveOwner();
         const events = await fetchHandoffEvents(ownerPubkey);
-        return foldHandoffEdges(events ?? []);
+        if (!Array.isArray(events)) {
+          // Same rule: an empty handoff list is a successful read, so a
+          // missing one must not be turned into it.
+          throw new Error("The relay returned no handoff list.");
+        }
+        return foldHandoffEdges(events);
       } catch (cause) {
         // Same rule as the portfolio: an empty handoff list is a successful
         // read, so a failure must reject rather than borrow that meaning.
