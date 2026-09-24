@@ -17,8 +17,9 @@ import { installMockBridge } from "../helpers/bridge";
  * The guards that turn this red: an absent cost or model painted as a measured
  * zero, a total summed over a partial read, a connector drawn on a surface with
  * no edge producer, a grouping that does not say what it is, a blank surface
- * state, a `requested` card presented as a measured state, or a canvas that
- * leaves the tab order.
+ * state, a `requested` card presented as a measured state, a canvas that leaves
+ * the tab order, a canvas that takes focus on a plain data transition, or one
+ * that never takes it after the operator's own Retry.
  *
  * **Every line below is a fixture.** Nothing else can feed this canvas through
  * the mock bridge, and a fixture is evidence of nothing: in particular the
@@ -399,5 +400,51 @@ test.describe("tower grafo s1 — every surface state says something", () => {
       "No se pudo leer el registro de encargos",
     );
     await expect(announcementInGraph).toHaveCount(0);
+  });
+
+  test("the operator's own Retry hands focus to the canvas, and nothing else does", async ({
+    page,
+  }) => {
+    await bootAtHome(page);
+    await openTower(page);
+    await waitForPortfolioSettled(page);
+
+    // A plain loading → data transition must not steal focus: the operator may
+    // be anywhere else on the page when the read lands.
+    await patchPortfolioQuery(page, {
+      status: "pending",
+      fetchStatus: "fetching",
+      data: undefined,
+      dataUpdatedAt: 0,
+    });
+    await expect(page.getByTestId("tower-loading-state")).toBeVisible();
+    const elsewhere = page.getByTestId("open-tower-view");
+    await elsewhere.focus();
+    await seedPortfolio(page, FOUR_LINES);
+    await expect(page.getByTestId("tower-node")).toHaveCount(4);
+    await expect(page.getByTestId("tower-node").first()).not.toBeFocused();
+    await expect(elsewhere).toBeFocused();
+
+    // The one legitimate hand-off: the operator's own Retry in this section,
+    // once it resolves into the canvas. The row list the canvas replaced
+    // carried the same affordance (spec §6), so it must not vanish with the
+    // list. The section's own Retry is scoped for: the panel's retry button
+    // calls the same refetch but is not this surface's hand-off.
+    await patchPortfolioQuery(page, {
+      status: "error",
+      error: new Error("relay unreachable: request timed out"),
+      fetchStatus: "idle",
+      data: undefined,
+      dataUpdatedAt: 0,
+    });
+    await expect(page.getByTestId("tower-error-state")).toBeVisible();
+    await page
+      .getByTestId("tower-grafo")
+      .getByRole("button", { name: "Retry" })
+      .click();
+    await waitForPortfolioSettled(page);
+    await seedPortfolio(page, FOUR_LINES);
+    await expect(page.getByTestId("tower-node")).toHaveCount(4);
+    await expect(page.getByTestId("tower-node").first()).toBeFocused();
   });
 });
