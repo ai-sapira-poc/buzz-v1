@@ -450,7 +450,7 @@ test.describe("tower grafo s2 — edges, orphans and the viewport", () => {
     }
   });
 
-  test("the world follows the root font size: no edge leaves its card at 12/16/24px root", async ({
+  test("the world follows the root font size: no edge leaves its card at 12/16/17.6/24px root", async ({
     page,
   }) => {
     await bootAtHome(page);
@@ -471,9 +471,17 @@ test.describe("tower grafo s2 — edges, orphans and the viewport", () => {
 
     // 12px and 24px are the ends of the app's own zoom (`16 × [0.75, 1.5]`);
     // 16px is the root where a fixed px grid and rem boxes coincide by accident,
-    // and it is the coincidence §4.7 is about. The grid is derived from the live
-    // root now, so all three roots must measure the same.
-    for (const root of [12, 16, 24]) {
+    // and it is the coincidence §4.7 is about. 17.6px is the interior step §4.7
+    // requires at minimum: `16 × 1.1`, the rest position a single `Cmd +`
+    // persists in `buzz:text-scale` and the app re-applies on mount — reachable
+    // and durable, not an academic extreme. The grid is derived from the live
+    // root now, so all four roots must measure the same.
+    //
+    // The interior step is visited first on purpose: a failing run aborts on the
+    // first root it disagrees with, so with 12px first the falsation would report
+    // only the extreme §4.7 already measured and never reach the root this slice
+    // adds. Order here decides which root the guard names, nothing else.
+    for (const root of [17.6, 12, 16, 24]) {
       await setRootFontSize(page, root);
       // The layout is not recomputed synchronously with the root change: poll the
       // real measurement, so a world that never follows fails here.
