@@ -244,6 +244,14 @@ buzz messages get --channel 55c3438a-e7e8-4d5c-acd9-6e066a8f178d --kinds 43008 -
   job=tower-coder · reason=ladder_exhausted · un solo firmante
 ```
 
+**Alcance de la lectura:** barrió los **nueve canales visibles para mi identidad**
+—`sala-tower-grafo`, `sala-tg-d`, `sala-tg-s1`, `panel-agentes`, `control-plane`,
+`tower-control`, `vision-e2e`, `Towe Visual`, `general`—, cada uno con
+`--kinds 43001,…,43008 --limit 200`. Los 27 objetos de `43008` están **todos** en
+`tower-control`; los otros ocho devuelven 0 para esa kind. Ninguno de esos canales
+tenía más de 80 eventos de las kinds pedidas, así que la ventana no recorta los
+conteos. Tabla por canal y kind: `architecture/tower-grafo-live-kindcheck.md`.
+
 Reproducido de forma independiente por el maestro (misma cifra, `truncated:false`).
 **Esto no mete `43008` en S1**: la decisión de diferirlo sigue en pie y es reversible.
 Lo que cambia es que el requisito de entrada de la slice siguiente ya no está pendiente,
@@ -307,9 +315,14 @@ no que la slice empiece.
     inferencia sobre el binario desplegado a partir del historial del repositorio,
     **no** una publicación.
   - **Lo que sigue sin verificarse es la emisión, no la admisión:** nadie ha publicado
-    `43001` ni `43007` (0 eventos en `sala-tower-grafo` y en `tower-control`; `[]` con
-    `--kinds 43007`), y `created` no tiene llamador. Un cero de emisión no es prueba de
-    rechazo.
+    `43001` ni `43007` —0 eventos de esas dos kinds en los **nueve** canales barridos
+    (§4), `[]` con `--kinds 43007`—, y `created` no tiene llamador. Un cero de emisión no
+    es prueba de rechazo.
+  - **`43001` (`requested`): sin productor observado y sin dibujar en S1.** Decisión
+    vigente (2026-09-24, opción (b)): S1 rotula **cuatro** estados —`running`, `done`,
+    `cancelled`, `failed`—, «sin señal» y nunca un cero presentado como medición. El
+    plegado de `main` no cambia: `43001` sigue plegándose a `requested`
+    (`towerJobFold.ts:33`).
 - **El tag `trace` sigue sin emitirse** (inferido de la lectura):
   `publish_job_event` construye los args sin `--trace` (`operator_updates.py:230-232`)
   y `publish_update` no lo pasa (`:422`), aunque el CLI lo declara (`lib.rs:806-808`) y
