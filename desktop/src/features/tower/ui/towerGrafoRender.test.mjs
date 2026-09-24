@@ -156,6 +156,28 @@ test("the grouping is depth in this window, and says so", () => {
   assert.equal(countOf(html, "tower-grafo-edge"), 0);
 });
 
+test("the role rides every card, and a nameless line gets the placeholder", () => {
+  const html = render(
+    derivePortfolioView(
+      snapshot({
+        data: [
+          line({ job: "j1", role: "builder" }),
+          line({ job: "j2", role: "" }),
+        ],
+      }),
+      () => {},
+    ),
+  );
+
+  // S1-2: D1 removed the column per role, so the role has no heading left to
+  // live in and rides the card. This is the substitute assertion for the frozen
+  // line S1-2 lost; deleting the label fails here.
+  const roles = [
+    ...html.matchAll(/data-testid="tower-node-role"[^>]*>([^<]*)</g),
+  ].map((match) => match[1]);
+  assert.deepEqual(roles, ["builder", "Unnamed agent"]);
+});
+
 test("a line with no role is drawn, never dropped", () => {
   const html = render(
     derivePortfolioView(

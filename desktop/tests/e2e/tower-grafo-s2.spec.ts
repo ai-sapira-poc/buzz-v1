@@ -309,6 +309,23 @@ function visibleCardArea(page: Page, index: number) {
   }, index);
 }
 
+/**
+ * The Tower's own scroll container — the page-level scroll a plain wheel must
+ * drive. Walked up from the column because the frame that owns the scroll is an
+ * ancestor, not the canvas.
+ */
+function towerScrollTop(page: Page) {
+  return page.evaluate(() => {
+    let element: HTMLElement | null =
+      document.querySelector<HTMLElement>('[data-testid="tower-column"]')
+        ?.parentElement ?? null;
+    while (element && element.scrollHeight <= element.clientHeight) {
+      element = element.parentElement;
+    }
+    return element?.scrollTop ?? null;
+  });
+}
+
 function stateChipFont(page: Page, index: number) {
   return page.evaluate((at) => {
     const chips = [
@@ -617,5 +634,80 @@ test.describe("tower grafo s2 — edges, orphans and the viewport", () => {
     await expect(page.getByTestId("tower-grafo-viewport")).toHaveCount(0);
     // The read is still named, in words and without a figure.
     await expect(page.getByTestId("tower-grafo-no-window-note")).toBeVisible();
+  });
+
+  test("a plain wheel over the canvas scrolls the Tower, it does not pan the canvas", async ({
+    page,
+  }) => {
+    await bootAtHome(page);
+    await openTower(page);
+    await seedTower(page, CHAIN_LINES, CHAIN_EDGES);
+    await expect(page.getByTestId("tower-grafo-edge")).toHaveCount(2);
+    // A short window guarantees the Tower is actually scrollable, so "the page
+    // scrolls" is observable and not vacuously true.
+    await page.setViewportSize({ width: 1280, height: 600 });
+
+    const before = await worldTransform(page);
+    const beforeTop = await towerScrollTop(page);
+    expect(
+      beforeTop,
+      "the Tower must be scrollable for this probe",
+    ).not.toBeNull();
+
+    await page.getByTestId("tower-grafo-viewport").hover();
+    await page.mouse.wheel(0, 300);
+
+    // The page moved; the canvas did not — the plain wheel is not hijacked.
+    await expect
+      .poll(() => towerScrollTop(page), { timeout: 5_000 })
+      .toBeGreaterThan(beforeTop ?? 0);
+    expect(await worldTransform(page)).toBe(before);
+  });
+
+  test("ctrl/meta + wheel does not zoom the canvas", async ({ page }) => {
+    await bootAtHome(page);
+    await openTower(page);
+    await seedTower(page, CHAIN_LINES, CHAIN_EDGES);
+    await expect(page.getByTestId("tower-grafo-edge")).toHaveCount(2);
+
+    const before = await worldTransform(page);
+    await page.getByTestId("tower-grafo-viewport").hover();
+    for (const modifier of ["Control", "Meta"]) {
+      await page.keyboard.down(modifier);
+      await page.mouse.wheel(0, -200);
+      await page.keyboard.up(modifier);
+    }
+
+    // The modified wheel never drives the canvas zoom (the webview owns it).
+    await expect(page.getByTestId("tower-grafo-zoom-level")).toHaveText("100%");
+    expect(await worldTransform(page)).toBe(before);
+  });
+
+  test("a failed read over a previous good one keeps the edges and names them old", async ({
+    page,
+  }) => {
+    await bootAtHome(page);
+    await openTower(page);
+    await seedTower(page, CHAIN_LINES, CHAIN_EDGES);
+    await expect(page.getByTestId("tower-grafo-edge")).toHaveCount(2);
+
+    await patchHandoversQuery(page, {
+      status: "error",
+      error: new Error("relay unreachable"),
+      fetchStatus: "idle",
+      data: CHAIN_EDGES,
+      dataUpdatedAt: Date.now(),
+    });
+
+    // The rows survive the failure and the note says they are the previous
+    // read — a failed read is never silent about the age of what it still shows.
+    await expect(page.getByTestId("tower-grafo-edge")).toHaveCount(2);
+    await expect(page.getByTestId("tower-grafo-edge-note")).toHaveAttribute(
+      "data-tone",
+      "stale",
+    );
+    await expect(page.getByTestId("tower-grafo-edge-note")).toContainText(
+      "last good read",
+    );
   });
 });
