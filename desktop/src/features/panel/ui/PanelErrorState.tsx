@@ -2,6 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import type { TowerFailure } from "@/features/tower/ui/portfolioState";
 import { clockUtc } from "./panelClock";
+import { portfolioFallSentence } from "./portfolioFallPhrase";
 
 /**
  * The panel read failed and there is no previous snapshot. A failed read is
@@ -65,6 +66,10 @@ export function PanelErrorState({
  * (design §1 asks the notice for «las `<HH:MM>` UTC»): one hour cannot reach the
  * operator in two formats on one screen. An unparseable instant is named without
  * an hour rather than shown as the raw ISO.
+ *
+ * The sentence itself is `portfolioFallSentence` — the portfolio read's one fall
+ * phrase, shared with the card's notice for that same read (§1.1 rule 2), so the
+ * card and the panel cannot describe one read in two ways.
  */
 export function PanelStaleBanner({
   lastSuccessAt,
@@ -84,20 +89,11 @@ export function PanelStaleBanner({
   onRetry: () => void;
 }) {
   const clock = clockUtc(lastSuccessAt);
-  const from = clock === null ? "" : `, de ${clock} UTC`;
   return (
     <Alert className="flex flex-col gap-1.5" data-testid="panel-stale-banner">
       <AlertTitle>La lectura de encargos falló</AlertTitle>
       <AlertDescription className="flex flex-col gap-1.5">
-        <span>
-          {lastGoodWasEmpty
-            ? clock
-              ? `La última lectura buena${from}, no encontró encargos. La lectura falló, así que esta pantalla no puede decir si ahora hay alguno ni cuántos.`
-              : "La última lectura buena no encontró encargos. La lectura falló, así que esta pantalla no puede decir si ahora hay alguno ni cuántos."
-            : clock
-              ? `Se muestra la última lectura buena${from}. Las filas de abajo son datos viejos, no actuales.`
-              : "Se muestra la última lectura buena. Las filas de abajo son datos viejos, no actuales."}
-        </span>
+        <span>{portfolioFallSentence(clock, lastGoodWasEmpty)}</span>
         {code ? (
           <code className="font-mono text-2xs text-muted-foreground">
             code: {code}

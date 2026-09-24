@@ -1,5 +1,7 @@
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
+import { clockUtc } from "@/features/panel/ui/panelClock";
+import { portfolioFallSentence } from "@/features/panel/ui/portfolioFallPhrase";
 import type { TowerFailure } from "./portfolioState";
 
 /**
@@ -62,32 +64,35 @@ export function TowerErrorState({
  * so the operator can weigh it, and which failure produced it, by its citable
  * code. The retry lives where the problem is, not in the page header.
  *
- * The instant is printed as the read carried it (`portfolioState.lastSuccessAt`)
- * rather than as a relative age: a relative age is computed against the render's
- * clock, so the same props read differently a moment later and the DOM no longer
- * says when the data is from. The panel's notice for this same read names the
- * same instant the same way — one read, one fall phrase (§1.1), not two that
- * disagree about when the data is from.
+ * The sentence is the portfolio read's one fall phrase (§1.1 rule 2), shared
+ * with the panel's notice: the same read cannot reach the operator as two
+ * sentences about the same instant. It names the read's hour through
+ * {@link clockUtc} rather than the instant it carried, so the card and the
+ * panel print the same clock (§1). The title and the action stay this surface's
+ * own; the fall phrase is the sentence.
  */
 export function TowerStaleBanner({
   lastSuccessAt,
+  lastGoodWasEmpty = false,
   code,
   onRetry,
 }: {
   lastSuccessAt: string | null;
+  /**
+   * The preserved snapshot held no encargos. The shared sentence then cannot
+   * promise the cards below it — the panel's branch for the same fact.
+   */
+  lastGoodWasEmpty?: boolean;
   /** The adapter's citable failure code, or `null` when it gave none. */
   code: string | null;
   onRetry: () => void;
 }) {
+  const clock = clockUtc(lastSuccessAt);
   return (
     <Alert className="flex flex-col gap-1.5" data-testid="tower-stale-banner">
       <AlertTitle>The telemetry source is not responding</AlertTitle>
       <AlertDescription className="flex flex-col gap-1.5">
-        <span>
-          {lastSuccessAt
-            ? `Showing the last good read, at ${lastSuccessAt}; it is not current.`
-            : "Showing the last good read; it is not current."}
-        </span>
+        <span>{portfolioFallSentence(clock, lastGoodWasEmpty)}</span>
         {/* The code the adapter produced. `null` means it supplied none: the
             notice then says nothing rather than coining one. */}
         {code ? (

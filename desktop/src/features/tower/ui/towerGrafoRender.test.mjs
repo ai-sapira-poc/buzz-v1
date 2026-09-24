@@ -406,7 +406,7 @@ test("P1 pair: a healthy read with no jobs is the empty canvas, not a fall", asy
   assert.doesNotMatch(html, /tower-stale-banner/);
 });
 
-test("P1: a rejection after a good read keeps the cards and names the instant", async () => {
+test("P1: a rejection after a good read keeps the cards and names the hour", async () => {
   const good = await viewFrom(
     sourceOver([
       jobEvent({ kind: 43002, job: "job-a", role: "builder", at: 100 }),
@@ -424,10 +424,11 @@ test("P1: a rejection after a good read keeps the cards and names the instant", 
   assert.match(html, /tower-stale-banner/);
   assert.equal(countOf(html, "tower-node"), 1);
   assert.doesNotMatch(html, /tower-error-state/);
-  // §1 P1: the notice names when the last good read happened — as the read
-  // carried it, not as an age computed against the render's clock — and cites
+  // §1 P1 / §1.1 rule 2: the notice names when the last good read happened in
+  // the panel's one UTC clock — never the raw ISO the read carried — and cites
   // the adapter's code. No figure rides the notice.
-  assert.match(html, /2026-09-23T09:40:00\.000Z/);
+  assert.doesNotMatch(html, /2026-09-23T09:40/);
+  assert.match(html, /09:40 UTC/);
   assert.match(html, /code: adapter_unavailable/);
   assert.doesNotMatch(html, /tok/);
   // One retry, inside the notice, and no way to dismiss it. The canvas keeps

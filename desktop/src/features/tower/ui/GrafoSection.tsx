@@ -90,6 +90,7 @@ export function GrafoSection({
       {showingStale ? (
         <TowerStaleBanner
           code={view.failure?.code ?? null}
+          lastGoodWasEmpty={view.lines !== null && view.lines.length === 0}
           lastSuccessAt={view.lastSuccessAt}
           onRetry={view.retry}
         />

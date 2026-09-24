@@ -112,6 +112,23 @@ function fallSentence(html, testId) {
   return match === null ? null : match[1];
 }
 
+/**
+ * The fall notices of both surfaces for one view, rendered as the screens do.
+ */
+function surfaces(view) {
+  return {
+    card: renderToStaticMarkup(
+      React.createElement(GrafoSection, { view, handovers: quietHandovers() }),
+    ),
+    panel: renderToStaticMarkup(
+      React.createElement(PanelSection, {
+        portfolio: view,
+        handovers: quietHandovers(),
+      }),
+    ),
+  };
+}
+
 test("A: a fall over a snapshot names the hour in UTC on both surfaces, with one phrase", async () => {
   const good = await viewFrom(
     sourceOver([jobEvent({ kind: 43002, job: "job-a", at: 100 })]),
@@ -122,15 +139,7 @@ test("A: a fall over a snapshot names the hour in UTC on both surfaces, with one
   });
   assert.equal(view.phase, "unreachable", "the read must be the fallen branch");
 
-  const card = renderToStaticMarkup(
-    React.createElement(GrafoSection, { view, handovers: quietHandovers() }),
-  );
-  const panel = renderToStaticMarkup(
-    React.createElement(PanelSection, {
-      portfolio: view,
-      handovers: quietHandovers(),
-    }),
-  );
+  const { card, panel } = surfaces(view);
 
   // (i) the read's raw ISO does not reach the operator through either fall
   // notice. (`2026-09-23T09:40` is the last good *read*; the row's own instants
@@ -159,4 +168,26 @@ test("A: a fall over a snapshot names the hour in UTC on both surfaces, with one
     cardSentence,
     "Se muestra la última lectura buena, de 09:40 UTC. Las filas de abajo son datos viejos, no actuales.",
   );
+});
+
+test("A: a fall over an empty snapshot keeps the sentence true on both surfaces", async () => {
+  // The edge the shared sentence must not paper over: with a preserved snapshot
+  // that held nothing, «las filas de abajo» would promise cards that do not
+  // exist. The card takes the panel's other branch for the same fact, so the
+  // two surfaces still agree.
+  const view = await viewFrom(failingSource(new Error("timeout")), {
+    previous: [],
+    dataUpdatedAt: Date.parse(READ_AT),
+  });
+  assert.equal(view.phase, "unreachable");
+
+  const { card, panel } = surfaces(view);
+  const cardSentence = fallSentence(card, "tower-stale-banner");
+  assert.doesNotMatch(card, new RegExp(READ_ISO_PREFIX));
+  assert.equal(cardSentence, fallSentence(panel, "panel-stale-banner"));
+  assert.equal(
+    cardSentence,
+    "La última lectura buena, de 09:40 UTC, no encontró encargos. La lectura falló, así que esta pantalla no puede decir si ahora hay alguno ni cuántos.",
+  );
+  assert.doesNotMatch(cardSentence, /filas de abajo/);
 });
