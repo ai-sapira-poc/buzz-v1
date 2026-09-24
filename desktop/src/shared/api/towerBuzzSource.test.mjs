@@ -166,6 +166,46 @@ test("a source that resolves no list is dead, not empty", async () => {
   );
 });
 
+test("the same window read twice folds to the first read, repeated id included", async () => {
+  // §2-B(b2): D3 §1.2 fixes the dedup **per event id**, so re-reading one
+  // window — the second read carrying an event that already travelled — must
+  // fold to exactly what the first read did. No duplicated row, no lost row,
+  // and no older repeat resurrecting a state the job has already left.
+  // Deliberately *not* claimed here: the internal window overlap a `limit 500`
+  // truncation could cause (D3 §3 says it cannot be known without live
+  // telemetry), and any watermark or second origin (D3 §4).
+  const window = [
+    jobEvent({ kind: 43002, job: "j1", at: 100, role: "builder" }),
+    jobEvent({
+      kind: 43004,
+      job: "j1",
+      at: 130,
+      role: "builder",
+      content: "Shipped the fix",
+    }),
+    jobEvent({ kind: 43006, job: "j2", at: 101, role: "reviewer" }),
+  ];
+  const first = await sourceOver(window).getPortfolio();
+  // The second read: the same window, with its first event seen again.
+  const second = await sourceOver([...window, window[0]]).getPortfolio();
+
+  assert.deepEqual(second, first, "the re-read must fold to the first read");
+  // Absolute, because equality alone would also hold if *both* reads were
+  // doubled: one row per job, not one per event.
+  assert.equal(second.length, 2);
+  assert.deepEqual(
+    second.map((line) => line.project.id),
+    ["j1", "j2"],
+  );
+  // The repeat is older than its job's newest event, so it must not win by
+  // virtue of arriving last.
+  assert.equal(second[0].work.state, "done");
+  assert.equal(
+    second[0].recency.lastSpanAt,
+    new Date(130 * 1000).toISOString(),
+  );
+});
+
 test("the relay filter names its kinds explicitly and scopes to the owner", async () => {
   // Omitting `kinds` is refused by the relay's p-gate (403); the scoping tag is
   // what makes this the owner's portfolio rather than the whole relay's.
