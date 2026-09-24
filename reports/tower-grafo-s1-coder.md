@@ -179,8 +179,9 @@ Ejecutado, con la salida real:
 - **Siguiente paso que no es mío:** registrar
   `tests/e2e/tower-grafo-s1.config.ts` en `playwright.config.ts` (fuera del
   ámbito de mi stage; el runner propio existe justo por eso).
-- **Estado de mis refs:** rama empujada con `HEAD:refs/heads/agent/tower-grafo-s1`
-  (fast-forward desde `6d2178757`, sin fuerza). No he movido ninguna ref local,
-  así que el worktree que tiene la rama cogida no queda desincronizado. El tag
+- **Estado de mis refs:** rama empujada con `HEAD:refs/heads/agent/tower-grafo-s1`,
+  fast-forward desde `c41af27d3` hasta `5339a0d3b`, sin fuerza y sin `--force`. No
+  he movido ninguna ref local, así que el worktree que tiene la rama cogida no
+  queda desincronizado (verá el avance al hacer `git pull`). El tag
   `tower-grafo-s1-cards-r4-alt` es **local y no se empuja**.
 - No he mergeado, ni he tocado `main`, ni he desplegado nada.
