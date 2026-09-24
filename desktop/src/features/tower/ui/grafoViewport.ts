@@ -7,6 +7,16 @@ import * as React from "react";
  * without the other — that is what "in register" means, and it is a property of
  * the structure, not of a synchronisation step that could drift.
  *
+ * **Zoom only ever magnifies** (floor `scale = 1`). That is a decision with a
+ * reason: the canvas scales *cards*, so a scale below 1 would render the job id
+ * and the state chip smaller than at rest — the operator would lose the data to
+ * gain a bird's-eye view. Instead the reachable area is covered with pan. The
+ * ceiling is bounded the other way: past it a zoom only adds empty space.
+ *
+ * Pan is **bounded**: the world can never leave the frame, so the operator can
+ * always see where the content is (and the `Reset view` control is always
+ * there).
+ *
  * The math is pure so it can be tested without a DOM; {@link useGrafoViewport}
  * wraps it in React state.
  */
@@ -17,45 +27,118 @@ export interface GrafoViewportTransform {
   scale: number;
 }
 
-/** Zoom bounds. Below 0.4 the cards are unreadable; above 2.5 they are noise. */
-export const GRAFO_MIN_SCALE = 0.4;
-export const GRAFO_MAX_SCALE = 2.5;
+/**
+ * Zoom bounds. The floor is 1 **on purpose**: mutating the card subtree with a
+ * scale below 1 renders the job id and the state chip legibly smaller than at
+ * rest, which trades the datum for the overview.
+ */
+export const GRAFO_MIN_SCALE = 1;
+/** Above 2× a zoom only adds empty space and paint cost. */
+export const GRAFO_MAX_SCALE = 2;
 
 /** One zoom-button step. */
 export const GRAFO_ZOOM_STEP = 1.2;
 
+/**
+ * The least slice of the world that always stays inside the frame, in px — a
+ * pan can never leave the operator looking at an empty canvas.
+ */
+export const GRAFO_MIN_VISIBLE_PX = 96;
+
+/** The world and the frame it is shown in, in px (the frame's own size). */
+export interface GrafoViewportBounds {
+  frameWidth: number;
+  frameHeight: number;
+  contentWidth: number;
+  contentHeight: number;
+}
+
+export const GRAFO_IDENTITY: GrafoViewportTransform = {
+  tx: 0,
+  ty: 0,
+  scale: 1,
+};
+
 export function clampScale(scale: number): number {
   return Math.min(GRAFO_MAX_SCALE, Math.max(GRAFO_MIN_SCALE, scale));
+}
+
+export function canZoomIn(scale: number): boolean {
+  return scale < GRAFO_MAX_SCALE;
+}
+
+export function canZoomOut(scale: number): boolean {
+  return scale > GRAFO_MIN_SCALE;
+}
+
+/**
+ * One axis' admissible translations.
+ *
+ * Content taller/wider than the frame keeps {@link GRAFO_MIN_VISIBLE_PX} of
+ * itself inside; content that fits is kept wholly inside, so a small graph
+ * cannot be dragged out of sight at all.
+ */
+function axisRange(content: number, frame: number): [number, number] {
+  if (content <= frame) return [0, Math.max(0, frame - content)];
+  return [GRAFO_MIN_VISIBLE_PX - content, frame - GRAFO_MIN_VISIBLE_PX];
+}
+
+export function clampViewport(
+  viewport: GrafoViewportTransform,
+  bounds: GrafoViewportBounds | null,
+): GrafoViewportTransform {
+  if (bounds === null) return viewport;
+  const [minTx, maxTx] = axisRange(
+    bounds.contentWidth * viewport.scale,
+    bounds.frameWidth,
+  );
+  const [minTy, maxTy] = axisRange(
+    bounds.contentHeight * viewport.scale,
+    bounds.frameHeight,
+  );
+  return {
+    scale: viewport.scale,
+    tx: Math.min(maxTx, Math.max(minTx, viewport.tx)),
+    ty: Math.min(maxTy, Math.max(minTy, viewport.ty)),
+  };
 }
 
 export function panViewport(
   viewport: GrafoViewportTransform,
   dx: number,
   dy: number,
+  bounds: GrafoViewportBounds | null,
 ): GrafoViewportTransform {
-  return { ...viewport, tx: viewport.tx + dx, ty: viewport.ty + dy };
+  return clampViewport(
+    { ...viewport, tx: viewport.tx + dx, ty: viewport.ty + dy },
+    bounds,
+  );
 }
 
 /**
  * Zooms by `factor` keeping the world point under `(anchorX, anchorY)` — in
- * viewport coordinates — fixed on screen. Clamping at the bounds returns the
- * same transform, so a click at the limit does not shift the canvas.
+ * frame coordinates — fixed on screen, then re-clamps. At a bound the transform
+ * is returned unchanged, so a press at the limit does not shift the canvas.
  */
 export function zoomViewport(
   viewport: GrafoViewportTransform,
   factor: number,
   anchorX: number,
   anchorY: number,
+  bounds: GrafoViewportBounds | null,
 ): GrafoViewportTransform {
   const scale = clampScale(viewport.scale * factor);
-  if (scale === viewport.scale) return viewport;
+  if (scale === viewport.scale) return clampViewport(viewport, bounds);
   const worldX = (anchorX - viewport.tx) / viewport.scale;
   const worldY = (anchorY - viewport.ty) / viewport.scale;
-  return {
-    scale,
-    tx: anchorX - worldX * scale,
-    ty: anchorY - worldY * scale,
-  };
+  return clampViewport(
+    {
+      scale,
+      tx: anchorX - worldX * scale,
+      ty: anchorY - worldY * scale,
+    },
+    bounds,
+  );
 }
 
 /** The zoom figure shown to the operator, as a percentage. */
@@ -63,22 +146,20 @@ export function formatZoom(scale: number): string {
   return `${Math.round(scale * 100)}%`;
 }
 
-const IDENTITY: GrafoViewportTransform = { tx: 0, ty: 0, scale: 1 };
-
 export interface GrafoViewportControls {
   viewport: GrafoViewportTransform;
-  zoomIn: () => void;
-  zoomOut: () => void;
-  reset: () => void;
-  /** Zoom around the centre of the element the pointer is over. */
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  /** Zoom around a frame point (default: the frame's centre). */
   zoomAt: (
-    element: HTMLElement | null,
+    frame: HTMLElement | null,
+    bounds: GrafoViewportBounds | null,
     factor: number,
     clientX?: number,
     clientY?: number,
   ) => void;
-  panBy: (dx: number, dy: number) => void;
-  setViewport: React.Dispatch<React.SetStateAction<GrafoViewportTransform>>;
+  panBy: (dx: number, dy: number, bounds: GrafoViewportBounds | null) => void;
+  reset: () => void;
 }
 
 /**
@@ -88,57 +169,49 @@ export interface GrafoViewportControls {
  * one read.
  */
 export function useGrafoViewport(): GrafoViewportControls {
-  const [viewport, setViewport] = React.useState(IDENTITY);
+  const [viewport, setViewport] = React.useState(GRAFO_IDENTITY);
 
   const zoomAt = React.useCallback(
     (
-      element: HTMLElement | null,
+      frame: HTMLElement | null,
+      bounds: GrafoViewportBounds | null,
       factor: number,
       clientX?: number,
       clientY?: number,
     ) => {
       setViewport((current) => {
-        let anchorX: number;
-        let anchorY: number;
-        if (
-          element !== null &&
-          clientX !== undefined &&
-          clientY !== undefined
-        ) {
-          const rect = element.getBoundingClientRect();
-          anchorX = clientX - rect.left;
-          anchorY = clientY - rect.top;
-        } else if (element !== null) {
-          anchorX = element.clientWidth / 2;
-          anchorY = element.clientHeight / 2;
-        } else {
-          anchorX = 0;
-          anchorY = 0;
+        let anchorX = 0;
+        let anchorY = 0;
+        if (frame !== null) {
+          if (clientX !== undefined && clientY !== undefined) {
+            const rect = frame.getBoundingClientRect();
+            anchorX = clientX - rect.left;
+            anchorY = clientY - rect.top;
+          } else {
+            anchorX = frame.clientWidth / 2;
+            anchorY = frame.clientHeight / 2;
+          }
         }
-        return zoomViewport(current, factor, anchorX, anchorY);
+        return zoomViewport(current, factor, anchorX, anchorY, bounds);
       });
     },
     [],
   );
 
   const panBy = React.useCallback(
-    (dx: number, dy: number) =>
-      setViewport((current) => panViewport(current, dx, dy)),
+    (dx: number, dy: number, bounds: GrafoViewportBounds | null) => {
+      setViewport((current) => panViewport(current, dx, dy, bounds));
+    },
     [],
   );
-  const reset = React.useCallback(() => setViewport(IDENTITY), []);
-  const zoomIn = React.useCallback(
-    () =>
-      setViewport((current) => zoomViewport(current, GRAFO_ZOOM_STEP, 0, 0)),
-    [],
-  );
-  const zoomOut = React.useCallback(
-    () =>
-      setViewport((current) =>
-        zoomViewport(current, 1 / GRAFO_ZOOM_STEP, 0, 0),
-      ),
-    [],
-  );
+  const reset = React.useCallback(() => setViewport(GRAFO_IDENTITY), []);
 
-  return { viewport, zoomIn, zoomOut, reset, zoomAt, panBy, setViewport };
+  return {
+    viewport,
+    canZoomIn: canZoomIn(viewport.scale),
+    canZoomOut: canZoomOut(viewport.scale),
+    zoomAt,
+    panBy,
+    reset,
+  };
 }

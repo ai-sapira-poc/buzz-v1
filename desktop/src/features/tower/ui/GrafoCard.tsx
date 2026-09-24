@@ -19,8 +19,14 @@ import { formatRecency, formatTokens } from "./portfolioFormat";
  * admitted state has no producer either, and the card does not draw it as a
  * state at all — see {@link stateLabel}.
  *
- * The card draws no edge: S1 has no edge reader mounted on this surface, and a
- * connector invented here would be a claim the data does not make.
+ * The card names the **role** as well as the job. D1 replaced the column per
+ * role with a layer per depth, so the role no longer has a heading to live in:
+ * if it did not ride the card, the operator would lose who does each job. That
+ * is a declared supersession of S1, not a silent regression.
+ *
+ * The card draws no edge: the connector belongs to the edge layer, in the same
+ * transformed world as this card, so a card can never disagree with its arrow
+ * about where it is.
  */
 
 /**
@@ -96,6 +102,8 @@ function costText(line: PortfolioLine): string {
 
 type GrafoCardProps = {
   line: PortfolioLine;
+  /** The role exactly as the read named it, or the unnamed placeholder. */
+  roleName: string;
 } & React.ComponentPropsWithoutRef<"li">;
 
 /**
@@ -103,7 +111,7 @@ type GrafoCardProps = {
  * read-only (Fase 1) and the roving tabindex lives in {@link GrafoCanvas}.
  */
 export const GrafoCard = React.forwardRef<HTMLLIElement, GrafoCardProps>(
-  function GrafoCard({ line, className, ...rest }, ref) {
+  function GrafoCard({ line, roleName, className, ...rest }, ref) {
     const { work, waiting } = line;
     const recency = formatRecency(line.recency.lastSpanAt);
     return (
@@ -130,6 +138,13 @@ export const GrafoCard = React.forwardRef<HTMLLIElement, GrafoCardProps>(
             {stateLabel(work)}
           </span>
         </div>
+
+        <span
+          className="min-w-0 truncate text-xs font-medium"
+          data-testid="tower-node-role"
+        >
+          {roleName}
+        </span>
 
         {work?.summary ? (
           <p className="line-clamp-3 text-xs text-muted-foreground">

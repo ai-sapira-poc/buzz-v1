@@ -18,8 +18,15 @@ import {
  * The layer is decorative to assistive technology (`aria-hidden`): the same
  * fact travels in text on each card and in the handoff section below, so a
  * screen reader is not asked to read raw geometry.
+ *
+ * Memoised on the layout: a pan is a transform of the world's container, not a
+ * new edge read, so dragging redraws no path.
  */
-export function GrafoEdges({ layout }: { layout: GrafoLayout }) {
+export const GrafoEdges = React.memo(function GrafoEdges({
+  layout,
+}: {
+  layout: GrafoLayout;
+}) {
   const rawId = React.useId();
   // `useId` yields colons, which are awkward inside a `url(#…)` reference;
   // keep only characters an id may safely carry.
@@ -89,4 +96,4 @@ export function GrafoEdges({ layout }: { layout: GrafoLayout }) {
       })}
     </svg>
   );
-}
+});

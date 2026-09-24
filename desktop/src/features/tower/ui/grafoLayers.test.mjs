@@ -113,9 +113,87 @@ test("an edge endpoint outside the window is an orphan node, not a dropped edge"
   const orphan = byJob(layout)["absent-parent"];
   assert.equal(orphan.line, null);
   assert.equal(layout.orphanEdgeCount, 1);
-  // The orphan is a root of the window (no incoming edge), so it lands at depth 0.
-  assert.equal(orphan.x, 0);
-  assert.equal(byJob(layout).child.x, GRAFO_CARD_WIDTH + GRAFO_LAYER_GAP);
+  // The orphan is **not** a node of the window, so it gets no depth at all: a
+  // layer would assert a depth nobody published. It rides the no-depth band.
+  assert.equal(orphan.layerKey, "unknown");
+  assert.equal(orphan.x, GRAFO_CARD_WIDTH + GRAFO_LAYER_GAP);
+  // The window's own node keeps the depth its own window's edges give it: the
+  // edge that touches the orphan cannot stretch it.
+  assert.equal(byJob(layout).child.layerKey, "depth:0");
+  assert.equal(byJob(layout).child.x, 0);
+  // The band is a real column of the layout, so the world must be as wide as it.
+  assert.equal(layout.width, 2 * GRAFO_CARD_WIDTH + GRAFO_LAYER_GAP);
+});
+
+test("orphans ride the no-depth band, never a depth layer", () => {
+  const layout = computeGrafoLayout(
+    [line("middle")],
+    [edge("up", "middle"), edge("middle", "down")],
+  );
+
+  assert.deepEqual(layout.layers.map(layerLabel), ["Depth 0", "No depth"]);
+  const band = layout.layers[layout.layers.length - 1];
+  assert.equal(band.depthKnown, false);
+  // Two orphans, ordered by jobId — the one identity they all share.
+  assert.deepEqual(
+    band.nodes.map((node) => node.jobId),
+    ["down", "up"],
+  );
+  assert.equal(layout.unknownDepthCount, 2);
+});
+
+test("an orphan carries the role the edge read named, or none at all", () => {
+  const named = computeGrafoLayout(
+    [line("child")],
+    [
+      {
+        ...edge("absent", "child"),
+        sender: { jobId: "absent", name: "arquitecto" },
+      },
+    ],
+  );
+  assert.equal(byJob(named).absent.roleHint, "arquitecto");
+
+  const unnamed = computeGrafoLayout(
+    [line("child")],
+    [
+      {
+        ...edge("absent", "child"),
+        sender: { jobId: "absent", name: null },
+      },
+    ],
+  );
+  assert.equal(byJob(unnamed).absent.roleHint, null);
+});
+
+test("a later row with no name does not erase a role an earlier one carried", () => {
+  const layout = computeGrafoLayout(
+    [line("child-a"), line("child-b")],
+    [
+      {
+        ...edge("absent", "child-a"),
+        sender: { jobId: "absent", name: "arquitecto" },
+      },
+      { ...edge("absent", "child-b"), sender: { jobId: "absent", name: null } },
+    ],
+  );
+  assert.equal(byJob(layout).absent.roleHint, "arquitecto");
+});
+
+test("an edge with both ends outside the window is still drawn, in the band", () => {
+  const layout = computeGrafoLayout(
+    [line("unrelated")],
+    [edge("left", "right")],
+  );
+
+  assert.equal(layout.orphanEdgeCount, 1);
+  assert.equal(layout.edges.length, 1);
+  assert.deepEqual(layout.layers.map(layerLabel), ["Depth 0", "No depth"]);
+  const band = layout.layers[layout.layers.length - 1];
+  assert.deepEqual(
+    band.nodes.map((node) => node.jobId),
+    ["left", "right"],
+  );
 });
 
 test("a job handing off to itself is not an edge", () => {
@@ -167,6 +245,21 @@ test("the layout is reproducible across two reads that reorder the input", () =>
   assert.deepEqual(
     first.nodes.map((node) => [node.jobId, node.x, node.y]),
     second.nodes.map((node) => [node.jobId, node.x, node.y]),
+  );
+});
+
+test("the reading order is layer by layer, and the index matches it", () => {
+  const layout = computeGrafoLayout(
+    [line("a"), line("b"), line("c")],
+    [edge("a", "c"), edge("b", "c")],
+  );
+  assert.deepEqual(
+    layout.nodes.map((node) => node.index),
+    [0, 1, 2],
+  );
+  assert.deepEqual(
+    layout.nodes.map((node) => node.jobId),
+    layout.layers.flatMap((layer) => layer.nodes.map((node) => node.jobId)),
   );
 });
 

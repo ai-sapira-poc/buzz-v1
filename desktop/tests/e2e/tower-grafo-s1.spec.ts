@@ -214,13 +214,13 @@ test.describe("tower grafo s1 — cards in the depth layout", () => {
     ).toEqual(["Depth 0"]);
 
     const canvas = page.getByTestId("tower-grafo-canvas");
-    // The edge read is not seeded here, so nothing connects two cards. The
-    // canvas says that fact in words instead of painting a silent blank.
+    // S1-3, strengthened rather than deleted: with no edge read seeded, nothing
+    // connects two cards — zero edge elements, so an invented connector still
+    // cannot pass.
     await expect(canvas.getByTestId("tower-grafo-edge")).toHaveCount(0);
-    await expect(page.getByTestId("tower-grafo-edge-note")).toBeVisible();
 
-    // The job id is the subject; the column names the role, so the card does not
-    // repeat it.
+    // The job id is the subject; the role now rides the card (S1-2: D1 removed
+    // the column heading the role used to live in), so the card names both.
     await expect(page.getByTestId("tower-node").first()).toContainText(
       "tower-grafo",
     );
@@ -246,8 +246,8 @@ test.describe("tower grafo s1 — cards in the depth layout", () => {
     await expect(requestedCard).not.toContainText("Requested");
     await expect(requestedCard).not.toHaveClass(/border-l-sky-500/);
 
-    // The grouping is named for what it is, and says where depth will come from
-    // — a column is a role, not a level.
+    // The grouping is named for what it is: a layer is this window's depth,
+    // never an absolute level.
     const note = page.getByTestId("tower-grafo-grouping-note");
     await expect(note).toBeVisible();
     await expect(note).toContainText("depth in this window");

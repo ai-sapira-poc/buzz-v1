@@ -12,13 +12,16 @@ import type { PortfolioLine } from "@/features/tower/domain/portfolio";
  * hierarchy (`architecture/tower-grafo-D-decisiones.md` §1.4).
  *
  * The algorithm is D1's: longest directed path from the window roots, computed
- * with Kahn in one pass (O(V+E)). A node left unqueued sits in a cycle or
- * downstream of one — its depth is **not guessed**: it is drawn in its own band,
- * ordered by `jobId`, and the layout never iterates without a bound. An edge
- * endpoint that is not a node of the portfolio read is an **orphan**: D1 §1.4
- * forbids dropping it, so it is drawn as its own node with the `jobId` it has
- * and no line — the card says "no line in this window" rather than inventing a
- * state.
+ * with Kahn in one pass (O(V+E)) **over the window's own nodes**. A node left
+ * unqueued sits in a cycle or downstream of one — its depth is **not guessed**:
+ * it is drawn in the trailing band, ordered by `jobId`, and the layout never
+ * iterates without a bound.
+ *
+ * An edge endpoint that is not a node of the portfolio read is an **orphan**
+ * (D1 §1.4). It is not dropped and it is not given a depth: a depth is a fact
+ * about *this window's* edges, and an orphan is not in this window, so a layer
+ * would assert a depth nobody published. It is drawn in the **same trailing
+ * band** as the cycles, with the `jobId` it has and no line.
  *
  * Coordinates are derived here from fixed geometry so the edge layer and the
  * cards share one space — the register the viewport preserves. Nothing here
@@ -33,16 +36,39 @@ export const GRAFO_ROW_GAP = 16;
 /** The layer heading band that sits above the first card. */
 export const GRAFO_LAYER_HEADER_HEIGHT = 32;
 
+/**
+ * The placeholder the adapter already gives a subject whose producer named no
+ * role — kept as a string so a blank name is drawn, never dropped.
+ */
+export const UNNAMED_ROLE = "Unnamed agent";
+
+/** The role of a portfolio line: the read's own name, or the placeholder. */
+export function roleOf(line: PortfolioLine): string {
+  const named = line.project.name.trim();
+  return named.length === 0 ? UNNAMED_ROLE : named;
+}
+
+/** The role of a node: the line's own name, or the edge read's, or the placeholder. */
+export function roleFor(node: GrafoNode): string {
+  if (node.line !== null) return roleOf(node.line);
+  const named = node.roleHint?.trim() ?? "";
+  return named.length === 0 ? UNNAMED_ROLE : named;
+}
+
 /** One card's slot. `line` is `null` for an orphan edge endpoint (D1 §1.4). */
 export interface GrafoNode {
   jobId: string;
   line: PortfolioLine | null;
+  /** The name the edge read carried for an orphan; `null` when it carried none. */
+  roleHint: string | null;
   layerKey: string;
+  /** Position in the reading order: layer by layer, card by card. */
+  index: number;
   x: number;
   y: number;
 }
 
-/** One layer: a depth, or the trailing band for nodes with unknown depth. */
+/** One layer: a depth, or the trailing band for nodes with no derivable depth. */
 export interface GrafoLayer {
   /** Stable key: `depth:<n>` or `unknown`. */
   key: string;
@@ -69,13 +95,14 @@ export interface GrafoLayout {
   edges: GrafoEdge[];
   width: number;
   height: number;
+  /** Cards in the trailing band: the unqueued window nodes and the orphans. */
   unknownDepthCount: number;
   orphanEdgeCount: number;
 }
 
 /**
- * Ordering inside a layer (D1 §1.2.2): a recorded wait first, then most recent
- * first, then `jobId` ascending by UTF-16 code units.
+ * Ordering inside a depth layer (D1 §1.2.2): a recorded wait first, then most
+ * recent first, then `jobId` ascending by UTF-16 code units.
  *
  * The tiebreak deliberately differs from `orderPortfolioLines`, which falls back
  * to the source array index: that index is an artifact of the order the relay
@@ -109,29 +136,27 @@ function compareInLayer(a: GrafoNode, b: GrafoNode): number {
   return compareJobIds(a.jobId, b.jobId);
 }
 
-function buildLayers(
-  nodes: GrafoNode[],
+/**
+ * Which nodes get a **depth**, computed over the window's own nodes only.
+ *
+ * An edge touching an orphan carries no depth: the orphan is not a node of the
+ * window, so the path it would extend is not this window's path. Excluding it
+ * is what keeps a layer meaning "depth in this window" rather than "depth
+ * somewhere above the read's limit".
+ */
+function depthsOverWindow(
+  windowNodes: GrafoNode[],
   edges: GrafoEdge[],
-): {
-  layers: GrafoLayer[];
-  width: number;
-  height: number;
-  unknownDepthCount: number;
-} {
-  // Adjacency and in-degree over the node set (which already includes orphans).
+): { depth: Map<string, number>; processed: Set<string> } {
   const adjacency = new Map<string, string[]>();
   const indegree = new Map<string, number>();
-  for (const node of nodes) {
+  for (const node of windowNodes) {
     adjacency.set(node.jobId, []);
     indegree.set(node.jobId, 0);
   }
   for (const edge of edges) {
-    // A self-edge is not a handoff and would otherwise mark its node as a
-    // one-node cycle; it is dropped by the caller.
     const out = adjacency.get(edge.parentJobId);
-    if (out === undefined || adjacency.get(edge.childJobId) === undefined) {
-      continue;
-    }
+    if (out === undefined || !adjacency.has(edge.childJobId)) continue;
     out.push(edge.childJobId);
     indegree.set(edge.childJobId, (indegree.get(edge.childJobId) ?? 0) + 1);
   }
@@ -159,11 +184,24 @@ function buildLayers(
       if (left === 0) queue.push(child);
     }
   }
-  const processed = new Set(queue);
+  return { depth, processed: new Set(queue) };
+}
+
+function buildLayers(
+  windowNodes: GrafoNode[],
+  orphanNodes: GrafoNode[],
+  edges: GrafoEdge[],
+): {
+  layers: GrafoLayer[];
+  width: number;
+  height: number;
+  unknownDepthCount: number;
+} {
+  const { depth, processed } = depthsOverWindow(windowNodes, edges);
 
   const byDepth = new Map<number, GrafoNode[]>();
   const unknown: GrafoNode[] = [];
-  for (const node of nodes) {
+  for (const node of windowNodes) {
     if (!processed.has(node.jobId)) {
       unknown.push(node);
       continue;
@@ -173,6 +211,10 @@ function buildLayers(
     if (bucket === undefined) byDepth.set(nodeDepth, [node]);
     else bucket.push(node);
   }
+  // The band is one group: a cycle is no more "this window's depth" than an
+  // orphan is, so both are ordered by the only stable identity they share.
+  unknown.push(...orphanNodes);
+  unknown.sort((a, b) => compareJobIds(a.jobId, b.jobId));
 
   const layers: GrafoLayer[] = [];
   let maxRows = 0;
@@ -183,12 +225,12 @@ function buildLayers(
     members: GrafoNode[],
   ) => {
     const x = layers.length * (GRAFO_CARD_WIDTH + GRAFO_LAYER_GAP);
-    const ordered = [...members].sort(compareInLayer);
-    ordered.forEach((node, index) => {
+    const ordered = orderedFor(members, depthKnown);
+    ordered.forEach((node, row) => {
       node.layerKey = key;
       node.x = x;
       node.y =
-        GRAFO_LAYER_HEADER_HEIGHT + index * (GRAFO_CARD_HEIGHT + GRAFO_ROW_GAP);
+        GRAFO_LAYER_HEADER_HEIGHT + row * (GRAFO_CARD_HEIGHT + GRAFO_ROW_GAP);
     });
     layers.push({ key, depth: layerDepth, depthKnown, nodes: ordered, x });
     maxRows = Math.max(maxRows, ordered.length);
@@ -215,6 +257,11 @@ function buildLayers(
   return { layers, width, height, unknownDepthCount: unknown.length };
 }
 
+/** A depth layer keeps D1's ordering; the band is already ordered by `jobId`. */
+function orderedFor(members: GrafoNode[], depthKnown: boolean): GrafoNode[] {
+  return depthKnown ? [...members].sort(compareInLayer) : members;
+}
+
 /**
  * The whole layout: nodes, layers, edges and the world size.
  *
@@ -226,11 +273,14 @@ export function computeGrafoLayout(
   lines: readonly PortfolioLine[],
   handovers: readonly HandoverRow[],
 ): GrafoLayout {
-  const lineById = new Map<string, PortfolioLine | null>();
-  for (const line of lines) lineById.set(line.project.id, line);
+  const lineById = new Map<string, PortfolioLine>(
+    lines.map((l) => [l.project.id, l]),
+  );
 
   const edges: GrafoEdge[] = [];
   const seen = new Set<string>();
+  /** The name the edge read carried for an endpoint outside the window. */
+  const orphanRoleHint = new Map<string, string | null>();
   for (const row of handovers) {
     const parent = row?.sender?.jobId;
     const child = row?.child?.jobId;
@@ -245,33 +295,61 @@ export function computeGrafoLayout(
     seen.add(id);
     // D1 §1.4: an endpoint outside the portfolio window is an orphan, drawn with
     // the id it has and no line — never discarded.
-    if (!lineById.has(parent)) lineById.set(parent, null);
-    if (!lineById.has(child)) lineById.set(child, null);
+    for (const [jobId, actor] of [
+      [parent, row.sender] as const,
+      [child, row.child] as const,
+    ]) {
+      if (lineById.has(jobId)) continue;
+      const named = typeof actor?.name === "string" ? actor.name : null;
+      // First non-null name wins: a later row that carries no name must not
+      // erase a role an earlier row did carry.
+      if (!orphanRoleHint.has(jobId) || orphanRoleHint.get(jobId) === null) {
+        orphanRoleHint.set(jobId, named);
+      }
+    }
     edges.push({
       id,
       parentJobId: parent,
       childJobId: child,
       parentOutcome: row.parentOutcome,
-      orphan: lineById.get(parent) === null || lineById.get(child) === null,
+      orphan: !lineById.has(parent) || !lineById.has(child),
     });
   }
 
-  const nodes: GrafoNode[] = [...lineById.entries()].map(([jobId, line]) => ({
-    jobId,
+  const windowNodes: GrafoNode[] = [...lineById.values()].map((line) => ({
+    jobId: line.project.id,
     line,
+    roleHint: null,
     layerKey: "",
+    index: 0,
     x: 0,
     y: 0,
   }));
+  const orphanNodes: GrafoNode[] = [...orphanRoleHint.entries()]
+    .map(([jobId, roleHint]) => ({
+      jobId,
+      line: null,
+      roleHint,
+      layerKey: "",
+      index: 0,
+      x: 0,
+      y: 0,
+    }))
+    .sort((a, b) => compareJobIds(a.jobId, b.jobId));
 
   const { layers, width, height, unknownDepthCount } = buildLayers(
-    nodes,
+    windowNodes,
+    orphanNodes,
     edges,
   );
+  const nodes = layers.flatMap((layer) => layer.nodes);
+  nodes.forEach((node, index) => {
+    node.index = index;
+  });
 
   return {
     layers,
-    nodes: layers.flatMap((layer) => layer.nodes),
+    nodes,
     edges,
     width,
     height,
