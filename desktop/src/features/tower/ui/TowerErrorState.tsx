@@ -58,14 +58,25 @@ export function TowerErrorState({
 
 /**
  * The source cannot be read but a previous read is on screen: keep the lines,
- * and announce at the top that they are old. The retry lives where the problem
- * is, not in the page header.
+ * and announce at the top that they are old — naming *when* that read happened,
+ * so the operator can weigh it, and which failure produced it, by its citable
+ * code. The retry lives where the problem is, not in the page header.
+ *
+ * The instant is printed as the read carried it (`portfolioState.lastSuccessAt`)
+ * rather than as a relative age: a relative age is computed against the render's
+ * clock, so the same props read differently a moment later and the DOM no longer
+ * says when the data is from. The panel's notice for this same read names the
+ * same instant the same way — one read, one fall phrase (§1.1), not two that
+ * disagree about when the data is from.
  */
 export function TowerStaleBanner({
   lastSuccessAt,
+  code,
   onRetry,
 }: {
   lastSuccessAt: string | null;
+  /** The adapter's citable failure code, or `null` when it gave none. */
+  code: string | null;
   onRetry: () => void;
 }) {
   return (
@@ -74,9 +85,16 @@ export function TowerStaleBanner({
       <AlertDescription className="flex flex-col gap-1.5">
         <span>
           {lastSuccessAt
-            ? `Showing data read ${formatStaleAt(lastSuccessAt)}; it is not current.`
-            : "Showing the last data read; it is not current."}
+            ? `Showing the last good read, at ${lastSuccessAt}; it is not current.`
+            : "Showing the last good read; it is not current."}
         </span>
+        {/* The code the adapter produced. `null` means it supplied none: the
+            notice then says nothing rather than coining one. */}
+        {code ? (
+          <code className="font-mono text-2xs text-muted-foreground">
+            code: {code}
+          </code>
+        ) : null}
         <Button
           className="self-start"
           onClick={onRetry}
@@ -88,11 +106,4 @@ export function TowerStaleBanner({
       </AlertDescription>
     </Alert>
   );
-}
-
-function formatStaleAt(iso: string): string {
-  const parsed = Date.parse(iso);
-  if (Number.isNaN(parsed)) return "earlier";
-  const minutes = Math.max(0, Math.floor((Date.now() - parsed) / 60_000));
-  return minutes < 1 ? "just now" : `${minutes} min ago`;
 }
