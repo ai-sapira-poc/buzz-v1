@@ -139,7 +139,7 @@ body {
 h1 { font-size: var(--text-heading-1-size); line-height: var(--text-heading-1-leading); font-weight: var(--font-weight-heading); margin: 0; }
 .subtitle { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
 .window { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
-.fixture { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-y) var(--space-component-padding-x); border: 1px solid var(--color-feedback-warning); border-radius: var(--radius-md); background: var(--color-feedback-warning-bg); color: var(--color-feedback-warning); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); }
+.fixture { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-y) var(--space-component-padding-x); border: 1px solid var(--color-feedback-warning); border-radius: var(--radius-md); background: var(--color-feedback-warning-bg); color: var(--color-text-primary); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); }
 .rule { border: 0; border-top: 1px solid var(--color-border-subtle); margin: 0; }
 .sec { display: grid; gap: var(--space-component-gap); }
 .sec-title { font-size: var(--text-heading-3-size); line-height: var(--text-heading-3-leading); font-weight: var(--font-weight-heading); margin: 0; }
@@ -147,18 +147,18 @@ h1 { font-size: var(--text-heading-1-size); line-height: var(--text-heading-1-le
 .quiet { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
 .mono { font-family: var(--font-mono); }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-component-gap); align-items: center; }
-.chip { display: inline-flex; align-items: center; padding: 0 var(--space-component-padding-x); border: 1px solid var(--color-border-default); border-radius: var(--radius-full); background: var(--color-surface-default); color: var(--color-text-secondary); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); font-weight: var(--font-weight-label); white-space: nowrap; }
-.chip-trabajando { background: var(--color-feedback-info-bg); border-color: var(--color-feedback-info); color: var(--color-feedback-info); }
-.chip-entregado { background: var(--color-feedback-success-bg); border-color: var(--color-feedback-success); color: var(--color-feedback-success); }
-.chip-cancelado { background: var(--color-feedback-warning-bg); border-color: var(--color-feedback-warning); color: var(--color-feedback-warning); }
-.chip-fallo { background: var(--color-feedback-error-bg); border-color: var(--color-feedback-error); color: var(--color-feedback-error); }
+.chip { display: inline-flex; align-items: center; padding: 0 var(--space-component-padding-x); border: 1px solid var(--color-border-default); border-radius: var(--radius-full); background: var(--color-surface-default); color: var(--color-text-secondary); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); font-weight: var(--font-weight-label); white-space: normal; }
+.chip-trabajando { background: var(--color-feedback-info-bg); border-color: var(--color-feedback-info); color: var(--color-text-primary); }
+.chip-entregado { background: var(--color-feedback-success-bg); border-color: var(--color-feedback-success); color: var(--color-text-primary); }
+.chip-cancelado { background: var(--color-feedback-warning-bg); border-color: var(--color-feedback-warning); color: var(--color-text-primary); }
+.chip-fallo { background: var(--color-feedback-error-bg); border-color: var(--color-feedback-error); color: var(--color-text-primary); }
 .chip-nodisponible { background: var(--color-surface-default); border-style: dashed; border-color: var(--color-border-default); color: var(--color-text-secondary); }
 .canvas { display: flex; flex-wrap: wrap; gap: var(--space-section-gap); align-items: flex-start; }
 .col { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-x); background: var(--color-surface-sunken); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); flex: 1 1 0; min-width: 0; }
 .col-head { display: grid; gap: var(--space-component-gap); padding-bottom: var(--space-component-padding-y); border-bottom: 1px solid var(--color-border-subtle); }
 .col-name { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; }
 .col-meta { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
-.card { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-y) var(--space-component-padding-x); background: var(--color-surface-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-subtle); }
+.card { display: grid; gap: var(--space-component-gap); min-width: 0; padding: var(--space-component-padding-y) var(--space-component-padding-x); background: var(--color-surface-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-subtle); }
 .card:focus-visible { outline: 2px solid var(--color-border-focus); }
 .card-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-component-gap); }
 .card-title { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; }
@@ -169,7 +169,7 @@ h1 { font-size: var(--text-heading-1-size); line-height: var(--text-heading-1-le
 .field { display: grid; gap: var(--space-component-gap); }
 .field dt { font-size: var(--text-supporting-size); font-weight: var(--font-weight-label); color: var(--color-text-muted); }
 .field dd { display: grid; gap: var(--space-component-gap); margin: 0; font-size: var(--text-supporting-size); color: var(--color-text-primary); }
-.cite { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); margin: 0; }
+.cite { font-family: var(--font-mono); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-muted); overflow-wrap: anywhere; margin: 0; }
 .zone { display: grid; gap: var(--space-component-gap); padding: var(--space-component-padding-x); background: var(--color-surface-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-subtle); }
 .zone-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-component-gap); padding-bottom: var(--space-component-padding-y); border-bottom: 1px solid var(--color-border-subtle); }
 .state-line { font-size: var(--text-heading-5-size); line-height: var(--text-heading-5-leading); font-weight: var(--font-weight-heading); margin: 0; }
@@ -177,7 +177,7 @@ h1 { font-size: var(--text-heading-1-size); line-height: var(--text-heading-1-le
 .panel { display: grid; gap: var(--space-component-gap); justify-items: start; padding: var(--space-section-gap); }
 .panel-title { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; }
 .alert { display: grid; gap: var(--space-component-gap); justify-items: start; padding: var(--space-component-padding-y) var(--space-component-padding-x); border: 1px solid var(--color-feedback-error); border-radius: var(--radius-md); background: var(--color-feedback-error-bg); }
-.alert-title { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; color: var(--color-feedback-error); }
+.alert-title { font-size: var(--text-heading-4-size); line-height: var(--text-heading-4-leading); font-weight: var(--font-weight-heading); margin: 0; color: var(--color-text-primary); }
 .alert-body { font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); color: var(--color-text-secondary); margin: 0; }
 .sk { display: flex; flex-wrap: wrap; gap: var(--space-component-gap); width: 100%; }
 .sk span { display: block; flex-basis: 0; height: var(--space-component-gap); border-radius: var(--radius-sm); background: var(--color-surface-sunken); }
