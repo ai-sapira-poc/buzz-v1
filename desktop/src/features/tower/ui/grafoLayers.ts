@@ -23,18 +23,78 @@ import type { PortfolioLine } from "@/features/tower/domain/portfolio";
  * would assert a depth nobody published. It is drawn in the **same trailing
  * band** as the cycles, with the `jobId` it has and no line.
  *
- * Coordinates are derived here from fixed geometry so the edge layer and the
- * cards share one space — the register the viewport preserves. Nothing here
- * names a transport, writes an event, or adds a dependency.
+ * Coordinates are derived here from the geometry of the **live root font size**
+ * (`grafoMetrics`), because the boxes they describe are rem: the edge layer and
+ * the cards share one space at every `Cmd +/-` zoom, not only at a 16px root
+ * (contract §4.7). Nothing here names a transport, writes an event, or adds a
+ * dependency.
  */
 
-/** Fixed geometry, in px. Cards and edges are positioned from these. */
+/**
+ * The geometry the layout is built on.
+ *
+ * Cards and edges are positioned from these numbers, in px — but the boxes they
+ * describe are **rem** (`w-64`, `h-44`, `h-8`, and the row gap), so they only
+ * describe the drawing at a 16px root font size. The constants below are that
+ * 16px case; {@link grafoMetrics} scales them to the root font size the canvas
+ * is actually rendering at, so a `Cmd +/-` zoom (12px … 24px root) moves the
+ * cards and their edges together instead of leaving the fixed grid behind.
+ */
+export interface GrafoMetrics {
+  /** The layer's width, and the card's: `w-64` = 16rem. */
+  cardWidth: number;
+  /** The card's height, `h-44` = 11rem, and the edge row step. */
+  cardHeight: number;
+  /** The gap between two layers, 6rem. */
+  layerGap: number;
+  /** The gap between two cards of one layer, 1rem — the row step. */
+  rowGap: number;
+  /** The layer heading band above the first card, `h-8` = 2rem. */
+  headerHeight: number;
+}
+
+/** The base geometry, in px, at the default 16px root font size. */
 export const GRAFO_CARD_WIDTH = 256;
 export const GRAFO_CARD_HEIGHT = 176;
 export const GRAFO_LAYER_GAP = 96;
 export const GRAFO_ROW_GAP = 16;
 /** The layer heading band that sits above the first card. */
 export const GRAFO_LAYER_HEADER_HEIGHT = 32;
+
+/** The root font size the px constants above are expressed against. */
+export const GRAFO_BASE_ROOT_FONT_SIZE = 16;
+
+/** {@link GrafoMetrics} at the default root font size. */
+export const GRAFO_METRICS: GrafoMetrics = {
+  cardWidth: GRAFO_CARD_WIDTH,
+  cardHeight: GRAFO_CARD_HEIGHT,
+  layerGap: GRAFO_LAYER_GAP,
+  rowGap: GRAFO_ROW_GAP,
+  headerHeight: GRAFO_LAYER_HEADER_HEIGHT,
+};
+
+/**
+ * The geometry at a given root font size.
+ *
+ * The world mixes a computed grid (these px numbers) with rem boxes, and the two
+ * only coincide at a 16px root: `Cmd +/-` moves the root to 12px … 24px, so the
+ * boxes scale and a fixed grid does not (contract §4.7). Deriving the grid from
+ * the live root keeps the edge on the card's border, keeps consecutive cards
+ * from overlapping, and keeps the layers apart, at every reachable zoom.
+ *
+ * A non-positive or unreadable root falls back to the base: a layout is never
+ * asked to divide by zero because a stylesheet did not parse.
+ */
+export function grafoMetrics(rootFontSize: number): GrafoMetrics {
+  const scale = rootFontSize > 0 ? rootFontSize / GRAFO_BASE_ROOT_FONT_SIZE : 1;
+  return {
+    cardWidth: GRAFO_CARD_WIDTH * scale,
+    cardHeight: GRAFO_CARD_HEIGHT * scale,
+    layerGap: GRAFO_LAYER_GAP * scale,
+    rowGap: GRAFO_ROW_GAP * scale,
+    headerHeight: GRAFO_LAYER_HEADER_HEIGHT * scale,
+  };
+}
 
 /**
  * The placeholder the adapter already gives a subject whose producer named no
@@ -95,6 +155,8 @@ export interface GrafoLayout {
   edges: GrafoEdge[];
   width: number;
   height: number;
+  /** The geometry this layout was computed with, for the edge layer and the rows. */
+  metrics: GrafoMetrics;
   /** Cards in the trailing band: the unqueued window nodes and the orphans. */
   unknownDepthCount: number;
   orphanEdgeCount: number;
@@ -191,6 +253,7 @@ function buildLayers(
   windowNodes: GrafoNode[],
   orphanNodes: GrafoNode[],
   edges: GrafoEdge[],
+  metrics: GrafoMetrics,
 ): {
   layers: GrafoLayer[];
   width: number;
@@ -224,13 +287,13 @@ function buildLayers(
     depthKnown: boolean,
     members: GrafoNode[],
   ) => {
-    const x = layers.length * (GRAFO_CARD_WIDTH + GRAFO_LAYER_GAP);
+    const x = layers.length * (metrics.cardWidth + metrics.layerGap);
     const ordered = orderedFor(members, depthKnown);
     ordered.forEach((node, row) => {
       node.layerKey = key;
       node.x = x;
       node.y =
-        GRAFO_LAYER_HEADER_HEIGHT + row * (GRAFO_CARD_HEIGHT + GRAFO_ROW_GAP);
+        metrics.headerHeight + row * (metrics.cardHeight + metrics.rowGap);
     });
     layers.push({ key, depth: layerDepth, depthKnown, nodes: ordered, x });
     maxRows = Math.max(maxRows, ordered.length);
@@ -246,14 +309,14 @@ function buildLayers(
   const width =
     layers.length === 0
       ? 0
-      : (layers.length - 1) * (GRAFO_CARD_WIDTH + GRAFO_LAYER_GAP) +
-        GRAFO_CARD_WIDTH;
+      : (layers.length - 1) * (metrics.cardWidth + metrics.layerGap) +
+        metrics.cardWidth;
   const height =
     maxRows === 0
       ? 0
-      : GRAFO_LAYER_HEADER_HEIGHT +
-        (maxRows - 1) * (GRAFO_CARD_HEIGHT + GRAFO_ROW_GAP) +
-        GRAFO_CARD_HEIGHT;
+      : metrics.headerHeight +
+        (maxRows - 1) * (metrics.cardHeight + metrics.rowGap) +
+        metrics.cardHeight;
   return { layers, width, height, unknownDepthCount: unknown.length };
 }
 
@@ -272,6 +335,7 @@ function orderedFor(members: GrafoNode[], depthKnown: boolean): GrafoNode[] {
 export function computeGrafoLayout(
   lines: readonly PortfolioLine[],
   handovers: readonly HandoverRow[],
+  metrics: GrafoMetrics = GRAFO_METRICS,
 ): GrafoLayout {
   const lineById = new Map<string, PortfolioLine>(
     lines.map((l) => [l.project.id, l]),
@@ -341,6 +405,7 @@ export function computeGrafoLayout(
     windowNodes,
     orphanNodes,
     edges,
+    metrics,
   );
   const nodes = layers.flatMap((layer) => layer.nodes);
   nodes.forEach((node, index) => {
@@ -353,6 +418,7 @@ export function computeGrafoLayout(
     edges,
     width,
     height,
+    metrics,
     unknownDepthCount,
     orphanEdgeCount: edges.filter((edge) => edge.orphan).length,
   };

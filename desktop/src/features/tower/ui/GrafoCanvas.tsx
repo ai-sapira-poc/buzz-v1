@@ -7,7 +7,8 @@ import { GrafoCard, NOT_AVAILABLE } from "./GrafoCard";
 import { GrafoEdges } from "./GrafoEdges";
 import {
   computeGrafoLayout,
-  GRAFO_ROW_GAP,
+  GRAFO_BASE_ROOT_FONT_SIZE,
+  grafoMetrics,
   type GrafoLayout,
   layerLabel,
   roleFor,
@@ -49,11 +50,33 @@ import {
 /** The frame's fixed height, in rem so it follows the app's zoom. */
 const VIEWPORT_HEIGHT_CLASS = "h-[35rem]";
 
-/** `h-44` is 11rem = 176px, the fixed card height the layout is built on. */
+/** `h-44` is 11rem — the card height the layout is built on, at whatever root. */
 const GRAFO_CARD_HEIGHT_CLASS = "h-44";
 
 /** The gap kept between a revealed card and the frame's edge, in px. */
 const REVEAL_PADDING_PX = 8;
+
+/**
+ * The root font size the app is drawing at, in px.
+ *
+ * `Cmd +/-` writes this value onto `<html>` (`useWebviewZoomShortcuts.ts`), and
+ * the canvas is built from a grid in px whose DOM boxes are rem (contract §4.7),
+ * so the grid has to be read at the size those boxes actually take. Guarded for
+ * the non-DOM render the unit tests use, and for a stylesheet that has not
+ * parsed yet: both fall back to the base size.
+ */
+function currentRootFontSize(): number {
+  if (
+    typeof document === "undefined" ||
+    typeof getComputedStyle !== "function"
+  ) {
+    return GRAFO_BASE_ROOT_FONT_SIZE;
+  }
+  const size = Number.parseFloat(
+    getComputedStyle(document.documentElement).fontSize,
+  );
+  return Number.isFinite(size) && size > 0 ? size : GRAFO_BASE_ROOT_FONT_SIZE;
+}
 
 /** A stable empty edge list, so a missing read does not recompute the layout. */
 const EMPTY_HANDOVERS: HandoverRow[] = [];
@@ -227,7 +250,7 @@ const GrafoLayers = React.memo(function GrafoLayers({
               className="flex flex-col"
               data-testid="tower-grafo-layer-list"
               onKeyDown={onKeyDown}
-              style={{ gap: GRAFO_ROW_GAP }}
+              style={{ gap: layout.metrics.rowGap }}
             >
               {layer.nodes.map((node) => {
                 const index = node.index;
@@ -277,14 +300,37 @@ export function GrafoCanvas({
   focusOnMount?: boolean;
 }) {
   const handoverRows: HandoverRow[] = handovers.lines ?? EMPTY_HANDOVERS;
+
+  // `Cmd +/-` moves the root font size, so the grid the layout is built on has
+  // to follow it or the rem boxes leave the px grid behind (§4.7). The frame is
+  // `h-[35rem]`, so a root change resizes it and a ResizeObserver sees it; the
+  // observer is the only trigger, so a pan or a zoom never recomputes a layout.
+  const [rootFontSize, setRootFontSize] =
+    React.useState<number>(currentRootFontSize);
+  const metrics = React.useMemo(
+    () => grafoMetrics(rootFontSize),
+    [rootFontSize],
+  );
   const layout = React.useMemo(
-    () => computeGrafoLayout(lines, handoverRows),
-    [lines, handoverRows],
+    () => computeGrafoLayout(lines, handoverRows, metrics),
+    [lines, handoverRows, metrics],
   );
 
   const [activeIndex, setActiveIndex] = React.useState(0);
   const cardRefs = React.useRef<Array<HTMLLIElement | null>>([]);
   const viewportRef = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    const frame = viewportRef.current;
+    if (frame === null || typeof ResizeObserver === "undefined") return;
+    const sync = () => setRootFontSize(currentRootFontSize());
+    const observer = new ResizeObserver(sync);
+    observer.observe(frame);
+    // The observer fires on the next frame; read once now so a frame that
+    // mounted under a non-default root is correct immediately.
+    sync();
+    return () => observer.disconnect();
+  }, []);
 
   // Stable across a pan: the drag reads the current layout through refs, so its
   // callbacks never need to be rebuilt (a rebuilt callback would defeat the

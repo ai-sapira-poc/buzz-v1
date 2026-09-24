@@ -8,6 +8,7 @@ import {
   GRAFO_LAYER_GAP,
   GRAFO_LAYER_HEADER_HEIGHT,
   GRAFO_ROW_GAP,
+  grafoMetrics,
   layerLabel,
 } from "./grafoLayers.ts";
 
@@ -261,6 +262,39 @@ test("the reading order is layer by layer, and the index matches it", () => {
     layout.nodes.map((node) => node.jobId),
     layout.layers.flatMap((layer) => layer.nodes.map((node) => node.jobId)),
   );
+});
+
+test("the grid is the live root font size's, so the boxes are never left behind", () => {
+  // The canvas draws `w-64` (16rem) wide, `h-44` (11rem) tall cards with a 1rem
+  // row gap under a `h-8` (2rem) heading, but positions them from these px
+  // numbers. `Cmd +/-` moves the root through 12px…24px (contract §4.7), so the
+  // numbers have to be the root's or the edge stops landing on the card.
+  for (const root of [12, 16, 24]) {
+    const metrics = grafoMetrics(root);
+    assert.equal(metrics.cardWidth, 16 * root, `card width at root ${root}`);
+    assert.equal(metrics.cardHeight, 11 * root, `card height at root ${root}`);
+    assert.equal(metrics.rowGap, root, `row gap at root ${root}`);
+    assert.equal(metrics.headerHeight, 2 * root, `header at root ${root}`);
+
+    const layout = computeGrafoLayout(
+      [
+        line("a", { at: "2026-09-23T20:00:00.000Z" }),
+        line("b", { at: "2026-09-23T19:00:00.000Z" }),
+      ],
+      [],
+      metrics,
+    );
+    const [first, second] = layout.nodes;
+    // One layer, two rows: the layout's own row pitch is what the edge layer
+    // reads y from, so it must be the step the flex column takes.
+    assert.equal(first.x, 0);
+    assert.equal(layout.width, metrics.cardWidth);
+    assert.equal(
+      second.y - first.y,
+      metrics.cardHeight + metrics.rowGap,
+      `row pitch at root ${root}`,
+    );
+  }
 });
 
 test("a malformed edge row is skipped, never a half edge", () => {

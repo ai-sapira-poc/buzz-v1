@@ -1,10 +1,6 @@
 import * as React from "react";
 
-import {
-  GRAFO_CARD_HEIGHT,
-  GRAFO_CARD_WIDTH,
-  type GrafoLayout,
-} from "./grafoLayers";
+import type { GrafoLayout } from "./grafoLayers";
 
 /**
  * The edge layer: one arrow per handoff edge (the handoff edge), from the parent
@@ -64,10 +60,14 @@ export const GrafoEdges = React.memo(function GrafoEdges({
         const parent = byJobId.get(edge.parentJobId);
         const child = byJobId.get(edge.childJobId);
         if (parent === undefined || child === undefined) return null;
-        const x1 = parent.x + GRAFO_CARD_WIDTH;
-        const y1 = parent.y + GRAFO_CARD_HEIGHT / 2;
+        // The card's own geometry, at the root font size the canvas is drawing:
+        // the grid is rem-derived (§4.7), so the edge lands on the card's border
+        // at every `Cmd +/-` zoom, not only at a 16px root.
+        const { cardWidth, cardHeight } = layout.metrics;
+        const x1 = parent.x + cardWidth;
+        const y1 = parent.y + cardHeight / 2;
         const x2 = child.x;
-        const y2 = child.y + GRAFO_CARD_HEIGHT / 2;
+        const y2 = child.y + cardHeight / 2;
         // A horizontal control offset: the curve leaves the parent to the right
         // and enters the child from the left even when a cycle puts the child at
         // the same or an earlier layer.

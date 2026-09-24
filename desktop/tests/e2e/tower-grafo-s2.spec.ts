@@ -253,6 +253,61 @@ function measureRegister(
   );
 }
 
+/**
+ * The root font size the app's `Cmd +/-` shortcuts write onto `<html>`
+ * (`useWebviewZoomShortcuts.ts`: 16px × factor, factor ∈ [0.75, 1.5]). Setting
+ * it here exercises the real reachable state the canvas has to survive
+ * (contract §4.7).
+ */
+async function setRootFontSize(page: Page, px: number) {
+  await page.evaluate((size) => {
+    document.documentElement.style.fontSize = `${size}px`;
+  }, px);
+}
+
+/**
+ * The vertical gap between consecutive cards of one layer, in px: a negative
+ * number is an overlap, which the rem-boxes-vs-px-grid mix produced before the
+ * grid was derived from the root.
+ */
+function measureRowGaps(page: Page) {
+  return page.evaluate(() =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-testid="tower-grafo-layer-list"]',
+      ),
+    ].flatMap((list) => {
+      const items = [
+        ...list.querySelectorAll<HTMLElement>('[data-testid="tower-node"]'),
+      ];
+      const gaps: number[] = [];
+      for (let i = 1; i < items.length; i += 1) {
+        gaps.push(
+          items[i].getBoundingClientRect().top -
+            items[i - 1].getBoundingClientRect().bottom,
+        );
+      }
+      return gaps;
+    }),
+  );
+}
+
+/** How far two neighbouring layers overlap horizontally (≤ 0 means apart). */
+function measureLayerOverlap(page: Page) {
+  return page.evaluate(() => {
+    const layers = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-testid="tower-grafo-layer"]',
+      ),
+    ].map((layer) => layer.getBoundingClientRect());
+    let worst = Number.NEGATIVE_INFINITY;
+    for (let i = 1; i < layers.length; i += 1) {
+      worst = Math.max(worst, layers[i - 1].right - layers[i].left);
+    }
+    return layers.length < 2 ? 0 : worst;
+  });
+}
+
 /** B1 / B2 / B3, plus what the state-loss check needs. */
 function measureBoxes(page: Page) {
   return page.evaluate(() => {
@@ -393,6 +448,66 @@ test.describe("tower grafo s2 — edges, orphans and the viewport", () => {
       expect(register.endDx, `edge ${edgeAt} end`).toBeLessThanOrEqual(1);
       expect(register.endDy, `edge ${edgeAt} end`).toBeLessThanOrEqual(1);
     }
+  });
+
+  test("the world follows the root font size: no edge leaves its card at 12/16/24px root", async ({
+    page,
+  }) => {
+    await bootAtHome(page);
+    await openTower(page);
+    // Two siblings in Depth 0 (the row step) and one edge into Depth 1 (the
+    // register the root change must preserve).
+    await seedTower(
+      page,
+      [
+        line("parent-job", "builder", "2026-09-23T20:05:00.000Z"),
+        line("sibling-job", "analyst", "2026-09-23T20:04:00.000Z"),
+        line("child-job", "reviewer", "2026-09-23T20:03:00.000Z"),
+      ],
+      [handoff("parent-job", "child-job")],
+    );
+    await expect(page.getByTestId("tower-node")).toHaveCount(3);
+    await expect(page.getByTestId("tower-grafo-edge")).toHaveCount(1);
+
+    // 12px and 24px are the ends of the app's own zoom (`16 × [0.75, 1.5]`);
+    // 16px is the root where a fixed px grid and rem boxes coincide by accident,
+    // and it is the coincidence §4.7 is about. The grid is derived from the live
+    // root now, so all three roots must measure the same.
+    for (const root of [12, 16, 24]) {
+      await setRootFontSize(page, root);
+      // The layout is not recomputed synchronously with the root change: poll the
+      // real measurement, so a world that never follows fails here.
+      await expect
+        .poll(async () => (await measureRegister(page, 0, 2, 0)).startDx, {
+          message: `edge start on the parent card's right edge at root ${root}px`,
+        })
+        .toBeLessThanOrEqual(1);
+
+      const register = await measureRegister(page, 0, 2, 0);
+      expect(
+        register.startDy,
+        `edge start y at root ${root}px`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        register.endDx,
+        `edge end x at root ${root}px`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        register.endDy,
+        `edge end y at root ${root}px`,
+      ).toBeLessThanOrEqual(1);
+
+      for (const gap of await measureRowGaps(page)) {
+        expect(gap, `row gap at root ${root}px`).toBeGreaterThanOrEqual(0);
+      }
+      expect(
+        await measureLayerOverlap(page),
+        `layer horizontal overlap at root ${root}px`,
+      ).toBeLessThanOrEqual(0);
+    }
+
+    // Leave the app at its default root for whatever assertion follows.
+    await setRootFontSize(page, 16);
   });
 
   test("an edge endpoint outside the window is drawn in the no-depth band", async ({

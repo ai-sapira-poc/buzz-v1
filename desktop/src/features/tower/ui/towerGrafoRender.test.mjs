@@ -91,6 +91,26 @@ function countOf(html, testId) {
   return (html.match(new RegExp(`data-testid="${testId}"`, "g")) ?? []).length;
 }
 
+/**
+ * The role text of each card, read **inside the card element**.
+ *
+ * The scoping is the assertion: `tower-node-role` rendered anywhere else (an
+ * attention band, the portfolio row, the handoff section) is not the guarantee
+ * S1-2 needs. D1 removed the column per role, so the role has no heading left
+ * to live in — it must ride the card, and this reads it there. A card that lost
+ * the label reports `null`, so moving the role off the card fails here even if
+ * some other surface still prints it.
+ */
+function cardRoles(html) {
+  return html
+    .split('data-testid="tower-node"')
+    .slice(1)
+    .map((card) => {
+      const match = card.match(/data-testid="tower-node-role"[^>]*>([^<]*)</);
+      return match === null ? null : match[1];
+    });
+}
+
 function layerTitles(html) {
   const titles = [];
   const pattern = /data-testid="tower-grafo-layer-title"[^>]*>([^<]+)<\/h3>/g;
@@ -156,7 +176,7 @@ test("the grouping is depth in this window, and says so", () => {
   assert.equal(countOf(html, "tower-grafo-edge"), 0);
 });
 
-test("the role rides every card, and a nameless line gets the placeholder", () => {
+test("the role rides each card, read from the card itself", () => {
   const html = render(
     derivePortfolioView(
       snapshot({
@@ -170,12 +190,10 @@ test("the role rides every card, and a nameless line gets the placeholder", () =
   );
 
   // S1-2: D1 removed the column per role, so the role has no heading left to
-  // live in and rides the card. This is the substitute assertion for the frozen
-  // line S1-2 lost; deleting the label fails here.
-  const roles = [
-    ...html.matchAll(/data-testid="tower-node-role"[^>]*>([^<]*)</g),
-  ].map((match) => match[1]);
-  assert.deepEqual(roles, ["builder", "Unnamed agent"]);
+  // live in and rides the card. Read per card: deleting the label from the card
+  // fails here even if it survives in some other surface's markup.
+  assert.equal(cardRoles(html).length, countOf(html, "tower-node"));
+  assert.deepEqual(cardRoles(html), ["builder", "Unnamed agent"]);
 });
 
 test("a line with no role is drawn, never dropped", () => {
