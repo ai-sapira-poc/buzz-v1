@@ -33,10 +33,12 @@ import { derivePortfolioView } from "@/features/tower/ui/portfolioState.ts";
  *
  * Alcance de lo que este fichero ata, dicho para no sobreestimarlo: el
  * adaptador se conduce con las **lecturas inyectadas**, así que la costura
- * «rechazo vs. lista vacía» del propio `towerBuzzSource.ts` la ata
- * `towerBuzzSource.test.mjs`; mutar esa línea no pone rojo a este fichero. Lo
- * que aquí se ata es la superficie: que la caída y el vacío sano no se
- * dibujen el uno como el otro, con la derivación y el render reales.
+ * «rechazo vs. lista vacía» del propio `towerBuzzSource.ts` la ata también
+ * `towerBuzzSource.test.mjs`. Una de sus dos mitades sí se ata aquí: el test
+ * `B(b1)` conduce la lectura que **no entregó lista** (`null`) hasta el DOM, de
+ * modo que restaurar `?? []` pone rojo a este fichero — se midió. Lo que sigue
+ * sin atarse aquí es el **throw** de la lectura inyectada: mutar esa rama no
+ * pone rojo a los demás tests de este fichero.
  */
 
 const OWNER = "owner-pubkey-hex";
@@ -81,6 +83,14 @@ function failingSource(cause) {
     async () => {
       throw cause;
     },
+    async () => OWNER,
+  );
+}
+
+/** The production read whose transport delivered no list at all. */
+function missingListSource() {
+  return createTowerBuzzSource(
+    async () => null,
     async () => OWNER,
   );
 }
@@ -156,6 +166,33 @@ test("pair: a rejected read is the fall notice and never «sin señal»", async 
   assert.doesNotMatch(html, /Sin señal de espera registrada/);
   assert.doesNotMatch(html, /No hay encargos en este periodo/);
   // R5+R7: no figure travels under a fall.
+  assert.doesNotMatch(html, /data-testid="panel-list"/);
+});
+
+test("B(b1): a source that delivered no list is a fall on the surface, not an empty read", async () => {
+  // §2-B(b1). The `?? []` slit turns a read that returned *nothing* into the
+  // one meaning the port reserves for a read that succeeded and found nothing —
+  // and the surface then paints the empty state where the failure belongs.
+  //
+  // This is the same line `towerBuzzSource.test.mjs` pins at the adapter, bound
+  // here to its visible consequence: with `?? []` restored, the phase below
+  // stops being `unreachable`, this notice becomes the empty state and «No hay
+  // encargos en este periodo» appears instead — that pair is what goes red. The
+  // «sin señal» absence is asserted for the contract's literal wording, not as
+  // the falsifier: with no rows there is no wait cell to claim it either way.
+  const portfolio = await viewFrom(missingListSource());
+  const html = render(portfolio);
+
+  assert.equal(portfolio.phase, "unreachable");
+  // There is no snapshot, so this is the hard notice, not the stale banner —
+  // and its copy names the distinction the slit would erase.
+  assert.match(html, /data-testid="panel-error-state"/);
+  assert.match(
+    html,
+    /La fuente rechazó la lectura en lugar de devolver una lista vacía\./,
+  );
+  assert.doesNotMatch(html, /No hay encargos en este periodo/);
+  assert.doesNotMatch(html, NO_WAIT_SENTENCE);
   assert.doesNotMatch(html, /data-testid="panel-list"/);
 });
 
